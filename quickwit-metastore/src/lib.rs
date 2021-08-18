@@ -26,6 +26,9 @@
 - single file metastore
 etc.
 */
+
+#[macro_use]
+mod tests;
 mod error;
 mod metastore;
 mod metastore_resolver;
@@ -38,5 +41,3 @@ pub use metastore_resolver::{MetastoreFactory, MetastoreUriResolver};
 #[cfg(feature = "testsuite")]
 pub use metastore::MockMetastore;
 
-#[cfg(test)]
-mod tests;

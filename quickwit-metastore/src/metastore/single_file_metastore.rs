@@ -142,7 +142,9 @@ impl SingleFileMetastore {
         // Serialize metadata set.
         let content: Vec<u8> = serde_json::to_vec(&metadata_set).map_err(|serde_err| {
             MetastoreError::InternalError {
-                message: "Failed to serialize Metadata set".to_string(),
+                message: "Failed tuse quickwit_storage::RamStorage;
+                SingleFileMetastore::new(Arc::new(RamStorage::default()))
+        o serialize Metadata set".to_string(),
                 cause: anyhow::anyhow!(serde_err),
             }
         })?;
@@ -171,6 +173,16 @@ impl SingleFileMetastore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[async_trait]
+impl crate::tests::DefaultForTest for SingleFileMetastore {
+    async fn default_for_test() -> Self {
+        use quickwit_storage::RamStorage;
+        SingleFileMetastore::new(Arc::new(RamStorage::default()))
+    }
+}
+
 
 #[async_trait]
 impl Metastore for SingleFileMetastore {
@@ -407,172 +419,4 @@ impl Metastore for SingleFileMetastore {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-    use std::sync::Arc;
-
-    use quickwit_index_config::AllFlattenIndexConfig;
-    use quickwit_storage::{MockStorage, StorageErrorKind};
-
-    use crate::tests::*;
-    use crate::{IndexMetadata, Metastore, MetastoreError, SingleFileMetastore};
-
-    #[tokio::test]
-    async fn test_single_file_metastore_index_exists() {
-        let metastore = SingleFileMetastore::for_test();
-        let index_id = "my-index";
-
-        {
-            // Check for the existence of index.
-            let result = metastore.index_exists(index_id).await.unwrap();
-            let expected = false;
-            assert_eq!(result, expected);
-
-            let index_metadata = IndexMetadata {
-                index_id: index_id.to_string(),
-                index_uri: "ram://indexes/my-index".to_string(),
-                index_config: Arc::new(AllFlattenIndexConfig::default()),
-            };
-
-            // Create index
-            metastore.create_index(index_metadata).await.unwrap();
-
-            // Check for the existence of index.
-            let result = metastore.index_exists(index_id).await.unwrap();
-            let expected = true;
-            assert_eq!(result, expected);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_get_index() {
-        let metastore = SingleFileMetastore::for_test();
-        let index_id = "my-index";
-
-        {
-            // Check for the existence of index.
-            let result = metastore.index_exists(index_id).await.unwrap();
-            let expected = false;
-            assert_eq!(result, expected);
-
-            let index_metadata = IndexMetadata {
-                index_id: index_id.to_string(),
-                index_uri: "ram://indexes/my-index".to_string(),
-                index_config: Arc::new(AllFlattenIndexConfig::default()),
-            };
-
-            // Create index
-            metastore
-                .create_index(index_metadata.clone())
-                .await
-                .unwrap();
-
-            // Check for the existence of index.
-            let result = metastore.index_exists(index_id).await.unwrap();
-            let expected = true;
-            assert_eq!(result, expected);
-
-            // Open index and check its metadata
-            let created_index = metastore.get_index(index_id).await.unwrap();
-            assert_eq!(created_index.index.index_id, index_metadata.index_id);
-            assert_eq!(
-                created_index.index.index_uri.clone(),
-                index_metadata.index_uri
-            );
-
-            assert_eq!(
-                format!("{:?}", created_index.index.index_config),
-                "AllFlattenIndexConfig".to_string()
-            );
-
-            // Open a non-existent index.
-            let metastore_error = metastore.get_index("non-existent-index").await.unwrap_err();
-            assert!(matches!(
-                metastore_error,
-                MetastoreError::IndexDoesNotExist { .. }
-            ));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_create_index() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_create_index(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_delete_index() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_delete_index(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_index_metadata() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_index_metadata(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_stage_split() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_stage_split(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_publish_splits() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_publish_splits(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_mark_splits_as_deleted() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_mark_splits_as_deleted(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_delete_splits() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_delete_splits(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_list_all_splits() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_list_all_splits(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_list_splits() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_list_splits(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_split_update_timestamp() {
-        let metastore = SingleFileMetastore::for_test();
-        test_metastore_split_update_timestamp(&metastore).await;
-    }
-
-    #[tokio::test]
-    async fn test_single_file_metastore_storage_failing() {
-        // The single file metastore should not update its internal state if the storage fails.
-        let mut mock_storage = MockStorage::default();
-
-        mock_storage // remove this if we end up changing the semantics of create.
-            .expect_exists()
-            .returning(|_| Ok(false));
-        mock_storage.expect_put().times(2).returning(|uri, _| {
-            assert_eq!(uri, Path::new("my-index/quickwit.json"));
-            Ok(())
-        });
-        mock_storage.expect_put().times(1).returning(|_uri, _| {
-            Err(StorageErrorKind::Io
-                .with_error(anyhow::anyhow!("Oops. Some network problem maybe?")))
-        });
-
-        let metastore = SingleFileMetastore::new(Arc::new(mock_storage));
-        test_metastore_storage_failing(&metastore).await;
-    }
-}
+metastore_test_suite!(crate::SingleFileMetastore);
