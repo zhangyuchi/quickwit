@@ -286,8 +286,7 @@ fn test_cmd_delete_index_dry_run() -> Result<()> {
     .stdout(predicate::str::contains(
         "The following files will be removed",
     ))
-    .stdout(predicate::str::contains("/hotcache"))
-    .stdout(predicate::str::contains("/.manifest"));
+    .stdout(predicate::str::contains(".split"));
 
     Ok(())
 }
@@ -331,7 +330,7 @@ fn test_cmd_delete() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_cmd_garbage_collect() -> Result<()> {
+async fn test_cmd_garbage_collect_no_grace() -> Result<()> {
     let test_env = create_test_env(TestStorageType::LocalFileSystem)?;
     create_logs_index(&test_env);
     index_data(
@@ -359,14 +358,13 @@ async fn test_cmd_garbage_collect() -> Result<()> {
         "No dangling files to garbage collect",
     ));
 
-    let split_path = test_env
-        .local_directory_path
-        .join(splits[0].split_metadata.split_id.as_str());
-    assert_eq!(split_path.exists(), true);
+    let index_path = test_env.local_directory_path;
 
-    let split_ids = vec![splits[0].split_metadata.split_id.as_str()];
+    assert_eq!(index_path.exists(), true);
+
+    let split_ids = &[splits[0].split_metadata.split_id.as_str()];
     metastore
-        .mark_splits_as_deleted(index_id, &split_ids)
+        .mark_splits_as_deleted(index_id, split_ids)
         .await?;
     make_command(
         format!(
@@ -380,9 +378,13 @@ async fn test_cmd_garbage_collect() -> Result<()> {
     .stdout(predicate::str::contains(
         "The following files will be garbage collected.",
     ))
-    .stdout(predicate::str::contains("/hotcache"))
-    .stdout(predicate::str::contains("/.manifest"));
-    assert_eq!(split_path.exists(), true);
+    .stdout(predicate::str::contains(".split"));
+
+    for split_id in split_ids {
+        let split_file = quickwit_common::split_file(split_id);
+        let split_filepath = index_path.join(&split_file);
+        assert_eq!(split_filepath.exists(), true);
+    }
 
     make_command(
         format!(
@@ -397,7 +399,12 @@ async fn test_cmd_garbage_collect() -> Result<()> {
         "Index successfully garbage collected",
     ));
 
-    assert_eq!(split_path.exists(), false);
+    for split_id in split_ids {
+        let split_file = quickwit_common::split_file(split_id);
+        let split_filepath = index_path.join(&split_file);
+        assert_eq!(split_filepath.exists(), false);
+    }
+
     let metastore = MetastoreUriResolver::default()
         .resolve(&test_env.metastore_uri)
         .await?;
@@ -412,7 +419,7 @@ async fn test_cmd_garbage_collect() -> Result<()> {
     )
     .assert()
     .success();
-    assert_eq!(test_env.local_directory_path.exists(), false);
+    assert_eq!(index_path.exists(), false);
     Ok(())
 }
 
@@ -445,9 +452,9 @@ async fn test_cmd_garbage_collect_spares_files_within_grace_period() -> Result<(
         "No dangling files to garbage collect",
     ));
 
-    let split_path = test_env
-        .local_directory_path
-        .join(splits[0].split_metadata.split_id.as_str());
+    let index_path = test_env.local_directory_path;
+    let split_filename = quickwit_common::split_file(&splits[0].split_metadata.split_id.as_str());
+    let split_path = index_path.join(&split_filename);
     assert_eq!(split_path.exists(), true);
 
     // The following steps help turn an existing published split into a staged one
@@ -490,8 +497,7 @@ async fn test_cmd_garbage_collect_spares_files_within_grace_period() -> Result<(
     .stdout(predicate::str::contains(
         "The following files will be garbage collected.",
     ))
-    .stdout(predicate::str::contains("/hotcache"))
-    .stdout(predicate::str::contains("/.manifest"));
+    .stdout(predicate::str::contains(&split_filename));
     assert_eq!(split_path.exists(), true);
 
     make_command(
