@@ -35,8 +35,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 pub struct VecSourceParams {
-    items: Vec<String>,
-    batch_num_docs: usize,
+    pub items: Vec<String>,
+    pub batch_num_docs: usize,
 }
 
 pub struct VecSource {

@@ -28,6 +28,7 @@ use quickwit_storage::StorageUriResolver;
 use crate::actors::IndexerParams;
 use crate::actors::IndexingPipelineParams;
 use crate::actors::IndexingPipelineSupervisor;
+use crate::models::IndexingStatistics;
 use crate::source::SourceConfig;
 
 pub mod actors;
@@ -40,7 +41,7 @@ pub async fn index_data(
     indexer_params: IndexerParams,
     source_config: SourceConfig,
     storage_uri_resolver: StorageUriResolver,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<IndexingStatistics> {
     let universe = Universe::new();
     let indexing_pipeline_params = IndexingPipelineParams {
         index_id: "test-index".to_string(),
@@ -51,9 +52,9 @@ pub async fn index_data(
     };
     let indexing_supervisor = IndexingPipelineSupervisor::new(indexing_pipeline_params);
     let (_pipeline_mailbox, pipeline_handler) = universe.spawn_async_actor(indexing_supervisor);
-    let (pipeline_termination, _) = pipeline_handler.join().await;
-    if pipeline_termination.is_success() {
-        return Ok(());
+    let (pipeline_termination, statistics) = pipeline_handler.join().await;
+    if !pipeline_termination.is_success() {
+        bail!(pipeline_termination);
     }
-    bail!(pipeline_termination)
+    Ok(statistics)
 }

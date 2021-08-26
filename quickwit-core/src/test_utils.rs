@@ -20,17 +20,17 @@
  */
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use byte_unit::Byte;
 use quickwit_index_config::IndexConfig;
+use quickwit_indexing::actors::IndexerParams;
+use quickwit_indexing::index_data;
+use quickwit_indexing::models::{CommitPolicy, IndexingStatistics, ScratchDirectory};
+use quickwit_indexing::source::{SourceConfig, VecSourceParams};
 use quickwit_metastore::checkpoint::Checkpoint;
 use quickwit_metastore::{IndexMetadata, Metastore, MetastoreUriResolver};
 use quickwit_storage::StorageUriResolver;
-use tempfile::tempdir;
-
-use crate::index_data;
-use crate::indexing::test_document_source;
-use crate::IndexDataParams;
-use crate::IndexingStatistics;
 
 /// Creates a Test environment.
 ///
@@ -71,26 +71,36 @@ impl TestSandbox {
     ///
     /// The documents are expected to be `serde_json::Value`.
     /// They can be created using the `serde_json::json!` macro.
-    pub async fn add_documents<I>(&self, splits: I) -> anyhow::Result<Arc<IndexingStatistics>>
+    pub async fn add_documents<I>(&self, split_docs: I) -> anyhow::Result<IndexingStatistics>
     where
         I: IntoIterator<Item = serde_json::Value> + 'static,
         I::IntoIter: Send,
     {
-        let document_source = test_document_source(splits);
-        let index_data_params = IndexDataParams {
-            index_id: self.index_id.clone(),
-            temp_dir: Arc::new(tempdir()?),
-            num_threads: 1,
-            heap_size: 100_000_000,
-            overwrite: false,
+        let docs: Vec<String> = split_docs
+            .into_iter()
+            .map(|doc_json| doc_json.to_string())
+            .collect();
+        let source_config = SourceConfig {
+            id: self.index_id.clone(),
+            source_type: "vec".to_string(),
+            params: serde_json::to_value(VecSourceParams {
+                items: docs,
+                batch_num_docs: 10,
+            })?,
         };
-        let statistics = Arc::new(IndexingStatistics::default());
-        index_data(
+        let indexer_params = IndexerParams {
+            scratch_directory: ScratchDirectory::try_new_temp()?,
+            heap_size: Byte::from_bytes(100_000_000),
+            commit_policy: CommitPolicy {
+                timeout: Duration::from_secs(3600),
+                num_docs_threshold: 5_000_000,
+            },
+        };
+        let statistics = index_data(
             self.metastore.clone(),
-            index_data_params,
-            document_source,
+            indexer_params,
+            source_config,
             self.storage_uri_resolver.clone(),
-            statistics.clone(),
         )
         .await?;
         Ok(statistics)
@@ -126,7 +136,7 @@ mod tests {
             serde_json::json!({"title": "Hurricane Fay", "body": "...", "url": "http://hurricane-fay"}),
             serde_json::json!({"title": "Ganimede", "body": "...", "url": "http://ganimede"}),
         ]).await?;
-        assert_eq!(statistics.num_uploaded_splits.get(), 1);
+        assert_eq!(statistics.num_uploaded_splits, 1);
         let metastore = test_index_builder.metastore();
         {
             let splits = metastore.list_all_splits("test_index").await?;
