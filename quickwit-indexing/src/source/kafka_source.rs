@@ -253,8 +253,7 @@ impl Source for KafkaSource {
         }
         if self.state.num_active_partitions == 0 {
             info!(topic = &self.topic.as_str(), "Reached end of topic.");
-            ctx.send_message(batch_sink, IndexerMessage::EndOfSource)
-                .await?;
+            ctx.send_exit_with_success(batch_sink).await?;
             return Err(ActorExitStatus::Success);
         }
         Ok(())
@@ -587,7 +586,7 @@ mod tests {
 
 #[cfg(all(test, feature = "kafka-broker-external-service"))]
 mod kafka_broker_tests {
-    use quickwit_actors::{create_test_mailbox, Universe};
+    use quickwit_actors::{create_test_mailbox, Command, CommandOrMessage, Universe};
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
@@ -732,9 +731,12 @@ mod kafka_broker_tests {
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let messages = inbox.drain_available_message_for_test();
+            let messages = inbox.drain_available_message_or_command_for_test();
             assert_eq!(messages.len(), 1);
-            assert!(matches!(messages[0], IndexerMessage::EndOfSource));
+            assert!(matches!(
+                messages[0],
+                CommandOrMessage::Command(Command::ExitWithSuccess)
+            ));
 
             let expected_current_positions: Vec<(i32, i64)> = vec![];
             let expected_state = json!({
@@ -779,12 +781,18 @@ mod kafka_broker_tests {
             let (exit_status, state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let mut messages = inbox.drain_available_message_for_test();
+            let mut messages = inbox.drain_available_message_or_command_for_test();
             assert_eq!(messages.len(), 2);
-            assert!(matches!(messages[0], IndexerMessage::Batch(_)));
-            assert!(matches!(messages[1], IndexerMessage::EndOfSource));
+            assert!(matches!(
+                messages[0],
+                CommandOrMessage::Message(IndexerMessage::Batch(_))
+            ));
+            assert!(matches!(
+                messages[1],
+                CommandOrMessage::Command(Command::ExitWithSuccess)
+            ));
 
-            if let IndexerMessage::Batch(batch) = &mut messages[0] {
+            if let CommandOrMessage::Message(IndexerMessage::Batch(batch)) = &mut messages[0] {
                 batch.docs.sort();
                 let expected_docs = vec![
                     "Message #000",
@@ -836,12 +844,18 @@ mod kafka_broker_tests {
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let mut messages = inbox.drain_available_message_for_test();
+            let mut messages = inbox.drain_available_message_or_command_for_test();
             assert_eq!(messages.len(), 2);
-            assert!(matches!(messages[0], IndexerMessage::Batch(_)));
-            assert!(matches!(messages[1], IndexerMessage::EndOfSource));
+            assert!(matches!(
+                messages[0],
+                CommandOrMessage::Message(IndexerMessage::Batch(_))
+            ));
+            assert!(matches!(
+                messages[1],
+                CommandOrMessage::Command(Command::ExitWithSuccess)
+            ));
 
-            if let IndexerMessage::Batch(batch) = &mut messages[0] {
+            if let CommandOrMessage::Message(IndexerMessage::Batch(batch)) = &mut messages[0] {
                 batch.docs.sort();
                 let expected_docs = vec!["Message #002", "Message #200", "Message #202"];
                 assert_eq!(batch.docs, expected_docs);
