@@ -90,7 +90,7 @@ impl AsyncActor for GarbageCollector {
         _: (),
         ctx: &ActorContext<Self::Message>,
     ) -> Result<(), quickwit_actors::ActorExitStatus> {
-        info!(index = %self.index_id, "garbage-collect-operation");
+        info!("garbage-collect-operation");
         self.counters.num_passes += 1;
 
         let deletion_stats = run_garbage_collect(
