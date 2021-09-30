@@ -213,7 +213,13 @@ impl Storage for StorageWithUploadCache {
             .lock()
             .await
             .contains_key(&path.to_path_buf());
-        let files_in_cache = self.cache_items.lock().await.keys().cloned().collect::<Vec<PathBuf>>();
+        let files_in_cache = self
+            .cache_items
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect::<Vec<PathBuf>>();
         info!(files_in_cache=?files_in_cache);
         info!(in_cache=is_file_exist_in_cache, path=?path, "local-storage-hit");
         if is_file_exist_in_cache {

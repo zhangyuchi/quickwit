@@ -205,7 +205,11 @@ impl<Message> Mailbox<Message> {
     ) -> Result<(), SendError> {
         let send_delay = self.inner.tx.send(cmd_or_msg, priority).await?;
         if let SendDelay::PushBack(push_back_duration) = send_delay {
-            info!(dest=self.actor_instance_id(), elapsed_secs=push_back_duration.as_secs_f32(), "push-back");
+            info!(
+                dest = self.actor_instance_id(),
+                elapsed_secs = push_back_duration.as_secs_f32(),
+                "push-back"
+            );
         }
         Ok(())
     }
@@ -217,7 +221,11 @@ impl<Message> Mailbox<Message> {
     ) -> Result<(), SendError> {
         let send_delay = self.inner.tx.send_blocking(cmd_or_msg, priority)?;
         if let SendDelay::PushBack(push_back_duration) = send_delay {
-            info!(dest=self.actor_instance_id(), elapsed_secs=push_back_duration.as_secs_f32(), "push-back");
+            info!(
+                dest = self.actor_instance_id(),
+                elapsed_secs = push_back_duration.as_secs_f32(),
+                "push-back"
+            );
         }
         Ok(())
     }
