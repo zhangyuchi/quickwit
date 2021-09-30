@@ -23,8 +23,9 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use tokio::sync::oneshot;
+use tracing::info;
 
-use crate::channel_with_priority::{Priority, Receiver, Sender};
+use crate::channel_with_priority::{Priority, Receiver, SendDelay, Sender};
 use crate::{QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
@@ -202,7 +203,11 @@ impl<Message> Mailbox<Message> {
         cmd_or_msg: CommandOrMessage<Message>,
         priority: Priority,
     ) -> Result<(), SendError> {
-        self.inner.tx.send(cmd_or_msg, priority).await
+        let send_delay = self.inner.tx.send(cmd_or_msg, priority).await?;
+        if let SendDelay::PushBack(push_back_duration) = send_delay {
+            info!(dest=self.actor_instance_id(), elapsed_secs=push_back_duration.as_secs_f32(), "push-back");
+        }
+        Ok(())
     }
 
     pub(crate) fn send_with_priority_blocking(
@@ -210,7 +215,11 @@ impl<Message> Mailbox<Message> {
         cmd_or_msg: CommandOrMessage<Message>,
         priority: Priority,
     ) -> Result<(), SendError> {
-        self.inner.tx.send_blocking(cmd_or_msg, priority)
+        let send_delay = self.inner.tx.send_blocking(cmd_or_msg, priority)?;
+        if let SendDelay::PushBack(push_back_duration) = send_delay {
+            info!(dest=self.actor_instance_id(), elapsed_secs=push_back_duration.as_secs_f32(), "push-back");
+        }
+        Ok(())
     }
 
     /// SendError is returned if the actor has already exited.

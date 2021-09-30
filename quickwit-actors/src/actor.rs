@@ -127,6 +127,7 @@ pub trait Actor: Send + Sync + 'static {
     fn name(&self) -> String {
         type_name::<Self>().to_string()
     }
+
     /// The Actor's incoming mailbox queue capacity. It is set when the actor is spawned.
     fn queue_capacity(&self) -> QueueCapacity {
         QueueCapacity::Unbounded

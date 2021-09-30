@@ -17,9 +17,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use flume::{RecvTimeoutError, TryRecvError};
+use flume::{RecvTimeoutError, TryRecvError, TrySendError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -104,6 +104,12 @@ pub struct Sender<T> {
     high_priority_tx: flume::Sender<T>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SendDelay {
+    Immediate,
+    PushBack(Duration),
+}
+
 impl<T> Sender<T> {
     fn channel(&self, priority: Priority) -> &flume::Sender<T> {
         match priority {
@@ -111,14 +117,32 @@ impl<T> Sender<T> {
             Priority::Low => &self.low_priority_tx,
         }
     }
-    pub async fn send(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-        self.channel(priority).send_async(msg).await?;
-        Ok(())
+
+    /// Returns true if there
+    pub async fn send(&self, msg: T, priority: Priority) -> Result<SendDelay, SendError> {
+        let tx = self.channel(priority);
+        match tx.try_send(msg) {
+            Ok(()) => Ok(SendDelay::Immediate),
+            Err(TrySendError::Disconnected(_msg)) => Err(SendError::Disconnected),
+            Err(TrySendError::Full(msg)) => {
+                let start = Instant::now();
+                tx.send_async(msg).await?;
+                Ok(SendDelay::PushBack(start.elapsed()))
+            }
+        }
     }
 
-    pub fn send_blocking(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-        self.channel(priority).send(msg)?;
-        Ok(())
+    pub fn send_blocking(&self, msg: T, priority: Priority) -> Result<SendDelay, SendError> {
+        let tx = self.channel(priority);
+        match tx.try_send(msg) {
+            Ok(()) => Ok(SendDelay::Immediate),
+            Err(TrySendError::Disconnected(_msg)) => Err(SendError::Disconnected),
+            Err(TrySendError::Full(msg)) => {
+                let start = Instant::now();
+                tx.send(msg)?;
+                Ok(SendDelay::PushBack(start.elapsed()))
+            }
+        }
     }
 
     pub fn try_send(&self, msg: T, priority: Priority) -> Result<(), SendError> {

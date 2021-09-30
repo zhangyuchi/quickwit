@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use quickwit_actors::{Actor, ActorContext, AsyncActor, Mailbox};
+use quickwit_actors::{Actor, ActorContext, AsyncActor, Mailbox, QueueCapacity};
 use quickwit_common::split_file;
 use quickwit_metastore::SplitMetadata;
 use quickwit_storage::Storage;
@@ -41,6 +41,11 @@ impl Actor for MergeSplitDownloader {
     type Message = MergeOperation;
     type ObservableState = ();
     fn observable_state(&self) -> Self::ObservableState {}
+
+    /// The Actor's incoming mailbox queue capacity. It is set when the actor is spawned.
+    fn queue_capacity(&self) -> QueueCapacity {
+        QueueCapacity::Bounded(1)
+    }
 }
 
 #[async_trait]
@@ -61,7 +66,8 @@ impl MergeSplitDownloader {
         merge_operation: MergeOperation,
         ctx: &ActorContext<MergeOperation>,
     ) -> anyhow::Result<()> {
-        info!(merge_operation=?merge_operation, "download-merge-splits");
+        let start = Instant::now();
+        info!(merge_operation=?merge_operation, "download-merge-splits-start");
         let merge_scratch_directory = self.scratch_directory.temp_child()?;
         let downloaded_splits_directory = merge_scratch_directory.temp_child()?;
         self.download_splits(
@@ -70,6 +76,7 @@ impl MergeSplitDownloader {
             ctx,
         )
         .await?;
+        info!(merge_operation=?merge_operation, elapsed_secs=start.elapsed().as_secs_f32(), "download-merge-splits-end");
         let msg = MergeScratch {
             merge_operation,
             merge_scratch_directory,
