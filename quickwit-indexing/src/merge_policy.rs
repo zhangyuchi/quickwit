@@ -128,7 +128,7 @@ impl Default for StableMultitenantWithTimestampMergePolicy {
     fn default() -> Self {
         StableMultitenantWithTimestampMergePolicy {
             target_demux_ops: 1,
-            max_merge_docs: 10_000_000,
+            max_merge_docs: 4_000_000,
             min_level_num_docs: 100_000,
             merge_factor: 10,
             merge_factor_max: 12,
