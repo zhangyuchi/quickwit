@@ -46,6 +46,10 @@ impl Actor for MergeExecutor {
     type ObservableState = ();
 
     fn observable_state(&self) -> Self::ObservableState {}
+
+    fn queue_capacity(&self) -> quickwit_actors::QueueCapacity {
+        quickwit_actors::QueueCapacity::Bounded(1)
+    }
 }
 
 fn combine_index_meta(mut index_metas: Vec<IndexMeta>) -> anyhow::Result<IndexMeta> {

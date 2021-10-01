@@ -41,6 +41,10 @@ impl Actor for MergeSplitDownloader {
     type Message = MergeOperation;
     type ObservableState = ();
     fn observable_state(&self) -> Self::ObservableState {}
+
+    fn queue_capacity(&self) -> quickwit_actors::QueueCapacity {
+        quickwit_actors::QueueCapacity::Bounded(1)
+    }
 }
 
 #[async_trait]
