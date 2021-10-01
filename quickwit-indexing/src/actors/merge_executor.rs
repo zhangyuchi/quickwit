@@ -48,7 +48,7 @@ impl Actor for MergeExecutor {
     fn observable_state(&self) -> Self::ObservableState {}
 
     fn queue_capacity(&self) -> quickwit_actors::QueueCapacity {
-        quickwit_actors::QueueCapacity::Bounded(0)
+        quickwit_actors::QueueCapacity::Bounded(1)
     }
 }
 
