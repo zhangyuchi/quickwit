@@ -41,6 +41,7 @@ quickwit-index-config = { version = "0.1.0", path = "../quickwit-index-config", 
 tempfile = '3'
 
 [features]
+default = ["postgres"]
 testsuite = ["mockall", "tempfile"]
 ci-test = []
 postgres = [ "diesel", "diesel_migrations" ]

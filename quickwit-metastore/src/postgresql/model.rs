@@ -21,7 +21,8 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 use crate::postgresql::schema::{indexes, splits};
-use crate::{IndexMetadata, SplitMetadataAndFooterOffsets, SplitState};
+use crate::{IndexMetadata, SplitMetadata, SplitMetadataAndFooterOffsets, SplitState};
+use anyhow::Context;
 
 /// A model structure for handling index metadata in a database.
 #[derive(Identifiable, Insertable, Queryable, Debug)]
@@ -53,16 +54,24 @@ impl Index {
 pub struct Split {
     /// Split ID.
     pub split_id: String,
-    /// The state of the split. This is the only mutable attribute of the split.
-    pub split_state: String,
+    /// number of records
+    pub num_records: i64,
+    /// size of split byte.
+    pub size_in_bytes: i64,
     /// If a timestamp field is available, the min timestamp in the split.
     pub start_time_range: Option<i64>,
     /// If a timestamp field is available, the max timestamp in the split.
     pub end_time_range: Option<i64>,
+    /// The state of the split. This is the only mutable attribute of the split.
+    pub split_state: String,
+    /// Timestamp for tracking when the split state was last modified.
+    pub update_timestamp: i64,
     /// A list of tags for categorizing and searching group of splits.
     pub tags: Vec<String>,
-    // A JSON string containing all of the SplitMetadataAndFooterOffsets.
-    pub split_metadata_json: String,
+    /// The start range of bytes of the footer.
+    pub start_footer_offsets: i64,
+    /// The start range of bytes of the footer.
+    pub end_footer_offsets: i64,
     /// Index ID. It is used as a foreign key in the database.
     pub index_id: String,
 }
@@ -85,12 +94,18 @@ impl Split {
     pub fn make_split_metadata_and_footer_offsets(
         &self,
     ) -> anyhow::Result<SplitMetadataAndFooterOffsets> {
-        let split_metadata_and_fotter_offsets =
-            serde_json::from_str::<SplitMetadataAndFooterOffsets>(
-                self.split_metadata_json.as_str(),
-            )
-            .map_err(|err| anyhow::anyhow!(err))?;
-
-        Ok(split_metadata_and_fotter_offsets)
+        Ok(SplitMetadataAndFooterOffsets {
+            split_metadata: SplitMetadata {
+                split_id: self.split_id.clone(),
+                split_state: SplitState::from_str(&self.split_state)
+                    .map_err(|error| anyhow::anyhow!(error))?,
+                num_records: self.num_records as usize,
+                size_in_bytes: self.size_in_bytes as u64,
+                time_range: self.get_time_range(),
+                update_timestamp: self.update_timestamp,
+                tags: self.tags.iter().cloned().collect(),
+            },
+            footer_offsets: (self.start_footer_offsets as u64)..(self.end_footer_offsets as u64),
+        })
     }
 }

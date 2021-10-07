@@ -297,7 +297,7 @@ impl PostgresqlMetastore {
             )
             .set((
                 schema::splits::dsl::split_state.eq(SplitState::Published.to_string()),
-                schema::splits::dsl::split_metadata_json.eq(split_metadata_and_footer_offsets_json),
+                schema::splits::dsl::update_timestamp.eq(now_timestamp),
             ));
             debug!(sql=%debug_query::<Pg, _>(&update_splits_statement).to_string());
             let updated_split: model::Split = update_splits_statement
@@ -387,7 +387,7 @@ impl PostgresqlMetastore {
             )
             .set((
                 schema::splits::dsl::split_state.eq(SplitState::ScheduledForDeletion.to_string()),
-                schema::splits::dsl::split_metadata_json.eq(split_metadata_and_footer_offsets_json),
+                schema::splits::dsl::update_timestamp.eq(now_timestamp),
             ));
             debug!(sql=%debug_query::<Pg, _>(&update_splits_statement).to_string());
             let updated_split: model::Split = update_splits_statement
@@ -549,24 +549,21 @@ impl Metastore for PostgresqlMetastore {
             .clone()
             .map(|range| *range.end());
 
-        // Serialize the split metadata and footer offsets to fit the database model.
-        let split_metadata_and_footer_offsets_json =
-            serde_json::to_string(&metadata).map_err(|err| MetastoreError::InternalError {
-                message: "Failed to serialize split metadata and footer offsets".to_string(),
-                cause: anyhow::anyhow!(err),
-            })?;
-
         let model_split = model::Split {
             split_id: metadata.split_metadata.split_id,
-            split_state: metadata.split_metadata.split_state.to_string(),
+            num_records: metadata.split_metadata.num_records as i64,
+            size_in_bytes: metadata.split_metadata.size_in_bytes as i64,
             start_time_range,
             end_time_range,
+            split_state: metadata.split_metadata.split_state.to_string(),
+            update_timestamp: Utc::now().timestamp(),
             tags: metadata
                 .split_metadata
                 .tags
                 .into_iter()
                 .collect::<Vec<String>>(),
-            split_metadata_json: split_metadata_and_footer_offsets_json,
+            start_footer_offsets: metadata.footer_offsets.start as i64,
+            end_footer_offsets: metadata.footer_offsets.end as i64,
             index_id: index_id.to_string(),
         };
         let conn = self.get_conn()?;
@@ -1016,3 +1013,58 @@ impl crate::tests::test_suite::DefaultForTest for PostgresqlMetastore {
 
 #[cfg(feature = "postgres")]
 metastore_test_suite_for_postgresql!(crate::PostgresqlMetastore);
+
+#[cfg(test)]
+mod tests {
+    use std::ops::RangeInclusive;
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use quickwit_index_config::WikipediaIndexConfig;
+
+    use crate::checkpoint::Checkpoint;
+    use crate::metastore::postgresql_metastore::get_or_init_postgresql_metastore_for_test;
+    use crate::metastore::Metastore;
+    use crate::{
+        metastore, IndexMetadata, SplitMetadata, SplitMetadataAndFooterOffsets, SplitState,
+    };
+
+    #[tokio::test]
+    async fn test_db() -> anyhow::Result<()> {
+        println!("TEST DB");
+        let pg = get_or_init_postgresql_metastore_for_test().await;
+        let metastore: Box<&dyn Metastore> = Box::new(pg);
+        let index_id = "my-index";
+
+        // create index
+        // let index_metadata = IndexMetadata {
+        //     index_id: index_id.to_string(),
+        //     index_uri: "ram://indexes/my-index".to_string(),
+        //     index_config: Arc::new(WikipediaIndexConfig::default()),
+        //     checkpoint: Checkpoint::default(),
+        // };
+        // metastore.create_index(index_metadata).await?;
+
+        // create splits
+        // let split_id = "split-one";
+        // let split_metadata = SplitMetadataAndFooterOffsets {
+        //     footer_offsets: 1000..2000,
+        //     split_metadata: SplitMetadata {
+        //         split_id: split_id.to_string(),
+        //         split_state: SplitState::Staged,
+        //         num_records: 1,
+        //         size_in_bytes: 2,
+        //         time_range: Some(RangeInclusive::new(0, 99)),
+        //         update_timestamp: Utc::now().timestamp(),
+        //         ..Default::default()
+        //     },
+        // };
+        // metastore.stage_split(index_id, split_metadata).await?;
+
+        // let result = metastore
+        //     .delete_splits(index_id, &["split-one", "split-two"])
+        //     .await?;
+
+        Ok(())
+    }
+}

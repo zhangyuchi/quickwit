@@ -27,11 +27,15 @@ table! {
 table! {
     splits (split_id) {
         split_id -> Varchar,
-        split_state -> Varchar,
+        num_records -> Int8,
+        size_in_bytes -> Int8,
         start_time_range -> Nullable<Int8>,
         end_time_range -> Nullable<Int8>,
+        split_state -> Varchar,
+        update_timestamp -> Int8,
         tags -> Array<Text>,
-        split_metadata_json -> Text,
+        start_footer_offsets -> Int8,
+        end_footer_offsets -> Int8,
         index_id -> Varchar,
     }
 }
