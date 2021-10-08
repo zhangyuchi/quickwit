@@ -2420,6 +2420,7 @@ dependencies = [
  "rusoto_s3",
  "serde",
  "serde_json",
+ "stable_deref_trait",
  "tantivy",
  "tempfile",
  "thiserror",

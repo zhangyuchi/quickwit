@@ -30,6 +30,7 @@
 //! - The `BundleStorage` bundles together multiple files into a single file.
 mod cache;
 mod storage;
+mod storage_with_tally;
 pub use self::storage::{PutPayload, Storage};
 
 mod bundle_storage;

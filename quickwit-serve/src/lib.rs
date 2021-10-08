@@ -95,7 +95,7 @@ fn storage_uri_resolver() -> StorageUriResolver {
             RegionProvider::Localstack,
             "s3+localstack",
         ))
-        .build()
+        .with_memory_capacity(8_000_000_000)
 }
 
 /// Start Quickwit search node.

@@ -25,6 +25,7 @@ use once_cell::sync::OnceCell;
 
 use crate::local_file_storage::LocalFileStorageFactory;
 use crate::ram_storage::RamStorageFactory;
+use crate::storage_with_tally::{MemoryTally, StorageWithTally};
 use crate::{RegionProvider, S3CompatibleObjectStorageFactory, Storage, StorageResolverError};
 
 /// Quickwit supported storage resolvers.
@@ -39,7 +40,7 @@ pub fn quickwit_storage_uri_resolver() -> &'static StorageUriResolver {
                 RegionProvider::Localstack,
                 "s3+localstack",
             ))
-            .build()
+            .with_memory_capacity(8_000_000_000)
     })
 }
 
@@ -57,6 +58,7 @@ pub trait StorageFactory: Send + Sync + 'static {
 #[derive(Clone)]
 pub struct StorageUriResolver {
     per_protocol_resolver: Arc<HashMap<String, Arc<dyn StorageFactory>>>,
+    memory_tally: MemoryTally,
 }
 
 #[derive(Default)]
@@ -76,9 +78,10 @@ impl StorageUriResolverBuilder {
     }
 
     /// Builds the `StorageUriResolver`.
-    pub fn build(self) -> StorageUriResolver {
+    pub fn with_memory_capacity(self, num_bytes: u64) -> StorageUriResolver {
         StorageUriResolver {
             per_protocol_resolver: Arc::new(self.per_protocol_resolver),
+            memory_tally: MemoryTally::with_capacity(num_bytes),
         }
     }
 }
@@ -98,7 +101,7 @@ impl StorageUriResolver {
                 RegionProvider::Localstack,
                 "s3+localstack",
             ))
-            .build()
+            .with_memory_capacity(1_000_000_000)
     }
 
     /// Resolves the given URI.
@@ -123,7 +126,8 @@ impl StorageUriResolver {
                     .unwrap_or_else(String::new),
             }
         })?;
-        Ok(storage)
+        let storage = StorageWithTally::wrap_with_tally(storage, self.memory_tally.clone());
+        Ok(Arc::new(storage))
     }
 }
 
