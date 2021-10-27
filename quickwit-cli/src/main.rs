@@ -332,7 +332,8 @@ fn event_format(
 }
 
 fn setup_logging_and_tracing(level: Level) -> anyhow::Result<()> {
-    let env_filter = env::var("RUST_LOG")
+    
+    /*let env_filter = env::var("RUST_LOG")
         .map(|_| EnvFilter::from_default_env())
         .or_else(|_| EnvFilter::try_new(format!("quickwit={}", level)))
         .context("Failed to set up tracing env filter.")?;
@@ -355,12 +356,13 @@ fn setup_logging_and_tracing(level: Level) -> anyhow::Result<()> {
             .with(tracing_subscriber::fmt::layer().event_format(event_format()))
             .try_init()
             .context("Failed to set up tracing.")?
-    }
+    }*/
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    console_subscriber::init();
     let telemetry_handle = quickwit_telemetry::start_telemetry_loop();
     let about_text = about_text();
 
