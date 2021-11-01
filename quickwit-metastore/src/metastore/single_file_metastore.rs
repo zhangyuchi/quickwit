@@ -25,7 +25,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use quickwit_storage::{
-    quickwit_storage_uri_resolver, PutPayload, Storage, StorageErrorKind, StorageResolverError,
+    quickwit_storage_uri_resolver, Storage, StorageErrorKind, StorageResolverError,
     StorageUriResolver,
 };
 use tokio::sync::RwLock;
@@ -166,7 +166,7 @@ impl SingleFileMetastore {
 
         // Put data back into storage.
         self.storage
-            .put(&metadata_path, Box::new(PutPayload::from(content)))
+            .put(&metadata_path, Box::new(content))
             .await
             .map_err(|storage_err| match storage_err.kind() {
                 StorageErrorKind::Unauthorized => MetastoreError::Forbidden {
@@ -582,7 +582,7 @@ mod tests {
 
     use chrono::Utc;
     use quickwit_index_config::WikipediaIndexConfig;
-    use quickwit_storage::{MockStorage, PutPayload, StorageErrorKind};
+    use quickwit_storage::{MockStorage, StorageErrorKind};
 
     use crate::checkpoint::{Checkpoint, CheckpointDelta};
     use crate::metastore::single_file_metastore::meta_path;
@@ -762,7 +762,7 @@ mod tests {
         let metadata_path = meta_path(index_id);
         metastore
             .storage
-            .put(&metadata_path, Box::new(PutPayload::from(content)))
+            .put(&metadata_path, Box::new(content))
             .await
             .unwrap();
 
