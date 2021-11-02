@@ -47,7 +47,7 @@ mod storage_resolver;
 
 pub use tantivy::directory::OwnedBytes;
 
-pub use self::bundle_storage::{BundleStorage, BundleStorageFileOffsets, BUNDLE_FILENAME};
+pub use self::bundle_storage::{BundleStorage, BundleStorageFileOffsets};
 #[cfg(any(test, feature = "testsuite"))]
 pub use self::cache::MockCache;
 pub use self::local_file_storage::{LocalFileStorage, LocalFileStorageFactory};

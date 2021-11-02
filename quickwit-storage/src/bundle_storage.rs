@@ -37,9 +37,6 @@ use tracing::error;
 
 use crate::{OwnedBytes, Storage, StorageError, StorageResult};
 
-/// Filename used for the bundle.
-pub const BUNDLE_FILENAME: &str = "bundle";
-
 /// BundleStorage bundles together multiple files into a single file.
 /// with some metadata
 pub struct BundleStorage {
