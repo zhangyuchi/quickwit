@@ -49,7 +49,6 @@ use quickwit_proto::{SearchRequest, SearchResponse};
 use quickwit_search::{single_node_search, SearchResponseRest};
 use quickwit_storage::{quickwit_storage_uri_resolver, BundleStorage, Storage};
 use quickwit_telemetry::payload::TelemetryEvent;
-use tantivy::directory::FileSlice;
 use tracing::debug;
 
 /// Throughput calculation window size.
@@ -211,11 +210,8 @@ pub async fn extract_split_cli(args: ExtractSplitArgs) -> anyhow::Result<()> {
     let split_file = PathBuf::from(format!("{}.split", args.split_id));
     let (_, bundle_footer) = read_split_footer(index_storage.clone(), &split_file).await?;
 
-    let (_hotcache_bytes, bundle_storage) = BundleStorage::new(
-        index_storage,
-        split_file,
-        FileSlice::new(Box::new(bundle_footer)),
-    )?;
+    let (_hotcache_bytes, bundle_storage) =
+        BundleStorage::open_from_owned_bytes(index_storage, split_file, bundle_footer)?;
 
     std::fs::create_dir_all(args.target_folder.to_owned())?;
 

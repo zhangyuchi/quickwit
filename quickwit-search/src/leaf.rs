@@ -104,7 +104,7 @@ pub(crate) async fn open_index(
         get_split_footer_from_cache_or_fetch(index_storage.clone(), split_and_footer_offsets)
             .await?;
 
-    let (hotcache_bytes, bundle_storage) = BundleStorage::new(
+    let (hotcache_bytes, bundle_storage) = BundleStorage::open(
         index_storage,
         split_file,
         FileSlice::new(Box::new(footer_data)),

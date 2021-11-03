@@ -261,7 +261,7 @@ mod test_split_store {
 
     use quickwit_metastore::{SplitMetadata, SplitMetadataAndFooterOffsets, SplitState};
     use quickwit_storage::{
-        get_split_streamer, PutPayload, RamStorage, Storage, StorageError, StorageErrorKind,
+        get_split_payload_streamer, PutPayload, RamStorage, Storage, StorageError, StorageErrorKind,
     };
     use tempfile::tempdir;
     use tokio::fs;
@@ -402,7 +402,7 @@ mod test_split_store {
                 .store_split(
                     &split_metadata1,
                     &split_path,
-                    Box::new(get_split_streamer(&[], &[5, 5, 5])?),
+                    Box::new(get_split_payload_streamer(&[], &[5, 5, 5])?),
                 )
                 .await?;
             assert!(!split_path.exists());
@@ -445,7 +445,7 @@ mod test_split_store {
                 .store_split(
                     &split_metadata1,
                     &split_path,
-                    Box::new(get_split_streamer(&[], &[5, 5, 5])?),
+                    Box::new(get_split_payload_streamer(&[], &[5, 5, 5])?),
                 )
                 .await?;
             assert!(!split_path.exists());
@@ -467,7 +467,7 @@ mod test_split_store {
                 .store_split(
                     &split_metadata2,
                     &split_path,
-                    Box::new(get_split_streamer(&[], &[5, 5, 5])?),
+                    Box::new(get_split_payload_streamer(&[], &[5, 5, 5])?),
                 )
                 .await?;
             assert!(!split_path.exists());
@@ -515,7 +515,7 @@ mod test_split_store {
                 .store_split(
                     &split_metadata1,
                     &split_path,
-                    Box::new(get_split_streamer(&[], &[5, 5, 5])?),
+                    Box::new(get_split_payload_streamer(&[], &[5, 5, 5])?),
                 )
                 .await?;
             assert!(!split_path.exists());
@@ -537,7 +537,7 @@ mod test_split_store {
                 .store_split(
                     &split_metadata2,
                     &split_path,
-                    Box::new(get_split_streamer(&[], &[5, 5, 5])?),
+                    Box::new(get_split_payload_streamer(&[], &[5, 5, 5])?),
                 )
                 .await?;
             assert!(!split_path.exists());
@@ -570,7 +570,7 @@ mod test_split_store {
             merge_policy.clone(),
         )?;
 
-        let split_streamer = get_split_streamer(&[], &[5, 5, 5])?;
+        let split_streamer = get_split_payload_streamer(&[], &[5, 5, 5])?;
         {
             let split_path = temp_dir.path().join("split2");
             fs::create_dir_all(&split_path).await?;

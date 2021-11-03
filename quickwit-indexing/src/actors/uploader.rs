@@ -30,7 +30,7 @@ use fail::fail_point;
 use itertools::Itertools;
 use quickwit_actors::{Actor, ActorContext, ActorExitStatus, AsyncActor, Mailbox, QueueCapacity};
 use quickwit_metastore::{Metastore, SplitMetadata, SplitMetadataAndFooterOffsets, SplitState};
-use quickwit_storage::get_split_streamer;
+use quickwit_storage::get_split_payload_streamer;
 use tantivy::chrono::Utc;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::Semaphore;
@@ -151,7 +151,7 @@ async fn stage_and_upload_split(
     counters: UploaderCounters,
 ) -> anyhow::Result<SplitMetadata> {
     let split_streamer =
-        get_split_streamer(&packaged_split.split_files, &packaged_split.hotcache_bytes)?;
+        get_split_payload_streamer(&packaged_split.split_files, &packaged_split.hotcache_bytes)?;
 
     let split_metadata_and_footer_offsets = create_split_metadata(
         packaged_split,

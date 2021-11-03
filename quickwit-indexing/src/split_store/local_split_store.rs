@@ -24,7 +24,7 @@ use std::{fs, io};
 
 use quickwit_common::split_file;
 use quickwit_directories::BundleDirectory;
-use quickwit_storage::{get_split_streamer, StorageErrorKind, StorageResult};
+use quickwit_storage::{get_split_payload_streamer, StorageErrorKind, StorageResult};
 use tantivy::directory::MmapDirectory;
 use tantivy::Directory;
 use tracing::{error, warn};
@@ -46,11 +46,14 @@ pub fn get_tantivy_directory_from_split_bundle(
 
 #[derive(Clone, Debug)]
 pub struct SplitFolder {
-    pub path: PathBuf,
+    path: PathBuf,
 }
 impl SplitFolder {
     pub fn new(path: PathBuf) -> Self {
         SplitFolder { path }
+    }
+    fn path(&self) -> &Path {
+        &self.path
     }
 }
 
@@ -127,7 +130,7 @@ impl LocalSplitStore {
                     .map(|el| el.map(|el| el.path()))
                     .collect::<Result<_, _>>()?;
                 // TODO: Do we need the hotcache?
-                let split_streamer = get_split_streamer(&paths, &[])?;
+                let split_streamer = get_split_payload_streamer(&paths, &[])?;
 
                 let split_num_bytes = split_streamer.split_size;
                 total_size_in_bytes += split_num_bytes;
@@ -269,7 +272,7 @@ impl LocalSplitStore {
         mut split_folder: SplitFolder,
         split_num_bytes: usize,
     ) -> io::Result<bool> {
-        assert!(split_folder.path.is_dir());
+        assert!(split_folder.path().is_dir());
         let size_in_cache = self.size_in_store();
 
         // Avoid storing in the cache when the maximum number of cached files is reached.
@@ -343,7 +346,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let split_streamer = get_split_streamer(
+        let split_streamer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[1, 2, 3],
         )?;

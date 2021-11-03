@@ -52,7 +52,24 @@ impl BundleStorage {
     /// more up front.
     ///
     /// Returns (Hotcache, Self)
-    pub fn new(
+    pub fn open_from_owned_bytes(
+        storage: Arc<dyn Storage>,
+        bundle_filepath: PathBuf,
+        split_data: OwnedBytes,
+    ) -> io::Result<(FileSlice, Self)> {
+        Self::open(
+            storage,
+            bundle_filepath,
+            FileSlice::new(Box::new(split_data)),
+        )
+    }
+    /// Opens a BundleStorage.
+    ///
+    /// The provided data must include the footer_bytes at the end of the slice, but it can have
+    /// more up front.
+    ///
+    /// Returns (Hotcache, Self)
+    pub fn open(
         storage: Arc<dyn Storage>,
         bundle_filepath: PathBuf,
         split_data: FileSlice,
@@ -83,7 +100,7 @@ pub struct CorruptedData {
 }
 
 const SPLIT_HOTBYTES_FOOTER_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
-const BUNDLEMETADATA_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
+const BUNDLE_METADATA_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
 
 /// Returns the file offsets in the file bundle.
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -93,7 +110,8 @@ pub struct BundleStorageFileOffsets {
 }
 
 impl BundleStorageFileOffsets {
-    /// Split data includes to hotcache
+    /// File need to include split data with hotcache at the end.
+    /// [Files, FileMetadata, FileMetadata Len, HotCache, HotCache Len]
     /// Returns (Hotcache, Self)
     fn open_from_split_data(file: FileSlice) -> io::Result<(FileSlice, Self)> {
         let (bundle_and_hotcache_bytes, hotcache_num_bytes_data) =
@@ -108,22 +126,23 @@ impl BundleStorageFileOffsets {
         );
         let (bundle, hotcache) =
             bundle_and_hotcache_bytes.split_from_end(hotcache_num_bytes as usize);
-        Ok((hotcache, Self::open_from_file_slice(bundle)?))
+        Ok((hotcache, Self::open(bundle)?))
     }
 
-    /// Read metadata from a file.
-    pub fn open_from_file_slice(file: FileSlice) -> io::Result<Self> {
-        let (file_data, num_bytes_filemetadata) =
-            file.split_from_end(BUNDLEMETADATA_LENGTH_NUM_BYTES);
+    /// File need to include only the bundle part of the split.
+    /// [Files, FileMetadata, FileMetadata Len]
+    pub fn open(file: FileSlice) -> io::Result<Self> {
+        let (tantivy_files_data, num_bytes_file_metadata) =
+            file.split_from_end(BUNDLE_METADATA_LENGTH_NUM_BYTES);
         let footer_num_bytes: u64 = u64::from_le_bytes(
-            num_bytes_filemetadata
+            num_bytes_file_metadata
                 .read_bytes()?
                 .as_slice()
                 .try_into()
                 .unwrap(),
         );
 
-        let bundle_storage_file_offsets_data = file_data
+        let bundle_storage_file_offsets_data = tantivy_files_data
             .slice_from_end(footer_num_bytes as usize)
             .read_bytes()?;
         let bundle_storage_file_offsets =
@@ -244,7 +263,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::{get_split_streamer, PutPayload, RamStorageBuilder};
+    use crate::{get_split_payload_streamer, PutPayload, RamStorageBuilder};
 
     #[tokio::test]
     async fn bundle_storage_file_offsets() -> anyhow::Result<()> {
@@ -258,7 +277,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let buffer = get_split_streamer(
+        let buffer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[5, 5, 5],
         )?
@@ -299,7 +318,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let buffer = get_split_streamer(
+        let buffer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[1, 3, 3, 7],
         )?
@@ -338,7 +357,7 @@ mod tests {
 
     #[tokio::test]
     async fn bundlestorage_test_empty() -> anyhow::Result<()> {
-        let buffer = get_split_streamer(&[], &[])?.read_all().await?;
+        let buffer = get_split_payload_streamer(&[], &[])?.read_all().await?;
 
         let (_hotcache, metadata) =
             BundleStorageFileOffsets::open_from_split_data(FileSlice::from(buffer.to_vec()))?;

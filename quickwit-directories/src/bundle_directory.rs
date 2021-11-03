@@ -93,8 +93,7 @@ impl BundleDirectory {
     pub fn get_stats_split(data: OwnedBytes) -> io::Result<Vec<(PathBuf, u64)>> {
         let split_file = FileSlice::new(Box::new(data));
         let (body_and_bundle_metadata, hot_cache) = split_footer(split_file)?;
-        let file_offsets =
-            BundleStorageFileOffsets::open_from_file_slice(body_and_bundle_metadata)?;
+        let file_offsets = BundleStorageFileOffsets::open(body_and_bundle_metadata)?;
 
         let mut files_and_size: Vec<(_, _)> = file_offsets
             .files
@@ -120,7 +119,7 @@ impl BundleDirectory {
 
     /// Opens a BundleDirectory, given a file containing the bundle data.
     pub fn open_bundle(file: FileSlice) -> io::Result<BundleDirectory> {
-        let file_offsets = BundleStorageFileOffsets::open_from_file_slice(file.clone())?;
+        let file_offsets = BundleStorageFileOffsets::open(file.clone())?;
         Ok(BundleDirectory { file, file_offsets })
     }
 }
@@ -181,7 +180,7 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    use quickwit_storage::{get_split_streamer, PutPayload};
+    use quickwit_storage::{get_split_payload_streamer, PutPayload};
 
     use super::*;
 
@@ -197,7 +196,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let split_streamer = get_split_streamer(
+        let split_streamer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
@@ -228,7 +227,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let split_streamer = get_split_streamer(
+        let split_streamer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
@@ -266,7 +265,7 @@ mod tests {
         let mut file2 = File::create(&test_filepath2)?;
         file2.write_all(&[99, 55, 44])?;
 
-        let split_streamer = get_split_streamer(
+        let split_streamer = get_split_payload_streamer(
             &[test_filepath1.clone(), test_filepath2.clone()],
             &[1, 2, 3],
         )?;

@@ -2216,7 +2216,6 @@ dependencies = [
  "reqwest",
  "serde_json",
  "serial_test",
- "tantivy",
  "tempfile",
  "tokio",
  "tokio-util",
