@@ -20,11 +20,13 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{self, Cursor, ErrorKind, SeekFrom, Write};
+use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use quickwit_common::HOTCACHE_FILENAME;
 use rusoto_core::ByteStream;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -58,17 +60,15 @@ impl SplitPayload {
         get_start_and_end_block_index(&self.block_offsets, range)
     }
 
-    /// Get and seek in DataSource
+    /// Get datasource for data block at index.
     ///
-    /// We apply seek now because the DataSource trait does not allow it.
+    /// We apply seek now because the returned DataSource trait does not allow it.
     async fn get_datasource(
         &self,
         index: usize,
         start_file_offset: u64,
     ) -> io::Result<Box<dyn DataSource>> {
-        let files_len = self.files_and_offsets.len();
-
-        if index < files_len {
+        if index < self.files_and_offsets.len() {
             let (path, _) = &self.files_and_offsets[index];
             let mut ds = Box::new(tokio::fs::File::open(path).await?);
             if start_file_offset != 0 {
@@ -214,6 +214,11 @@ impl SplitPayloadBuilder {
 
         let metadata_json = serde_json::to_string(&BundleStorageFileOffsets {
             files: metadata_with_fixed_paths,
+            files_and_data: iter::once((
+                PathBuf::from(HOTCACHE_FILENAME.to_string()),
+                hotcache.to_owned(),
+            ))
+            .collect(),
         })?;
 
         footer_bytes.write_all(metadata_json.as_bytes())?;
@@ -315,10 +320,10 @@ mod tests {
             (0, 2)
         );
         assert!(split_streamer
-            .get_start_and_end_block_index(100..110)
+            .get_start_and_end_block_index(140..150)
             .is_err());
         assert!(split_streamer
-            .get_start_and_end_block_index(0..100)
+            .get_start_and_end_block_index(0..150)
             .is_err());
 
         Ok(())

@@ -106,7 +106,7 @@ pub struct LocalSplitStore {
     /// The parameters of the cache.
     params: IndexingSplitStoreParams,
     /// Splits owned by the local split store, which reside in the split_store_folder.
-    /// SplitId -> (Split Num Bytes, BundledSplitFile)
+    /// SplitId -> (Split Num Bytes, SplitFolder)
     split_files: HashMap<String, (usize, SplitFolder)>,
     /// The root folder where all data is moved into.
     split_store_folder: PathBuf,
@@ -322,13 +322,13 @@ mod tests {
         let split_store = LocalSplitStore::open(temp_dir.path().to_path_buf(), params)?;
         let cache_content = split_store.inspect();
         assert_eq!(cache_content.len(), 2);
-        assert_eq!(cache_content.get("split1").cloned(), Some(28));
-        assert_eq!(cache_content.get("split2").cloned(), Some(28));
+        assert_eq!(cache_content.get("split1").cloned(), Some(61));
+        assert_eq!(cache_content.get("split2").cloned(), Some(61));
         assert_eq!(
             split_store.size_in_store(),
             SizeInCache {
                 num_splits: 2,
-                size_in_bytes: 28 * 2
+                size_in_bytes: 61 * 2
             }
         );
         Ok(())

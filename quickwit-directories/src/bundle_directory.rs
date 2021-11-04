@@ -131,6 +131,10 @@ impl Directory for BundleDirectory {
     }
 
     fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
+        if let Some(data_in_metadata) = self.file_offsets.files_and_data.get(path) {
+            return Ok(FileSlice::from(data_in_metadata.to_vec()));
+        }
+
         let byte_range = self
             .file_offsets
             .get(path)

@@ -107,6 +107,8 @@ const BUNDLE_METADATA_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
 pub struct BundleStorageFileOffsets {
     /// The files and their offsets in the body
     pub files: HashMap<PathBuf, Range<u64>>,
+    /// Files and their data in the header.
+    pub files_and_data: HashMap<PathBuf, Vec<u8>>,
 }
 
 impl BundleStorageFileOffsets {
@@ -158,7 +160,7 @@ impl BundleStorageFileOffsets {
 
     /// Returns whether file exists in metadata.
     pub fn exists(&self, path: &Path) -> bool {
-        self.files.contains_key(path)
+        self.files.contains_key(path) || self.files_and_data.contains_key(path)
     }
 }
 
@@ -190,6 +192,9 @@ impl Storage for BundleStorage {
         path: &Path,
         range: Range<usize>,
     ) -> crate::StorageResult<OwnedBytes> {
+        if let Some(data_in_metadata) = self.metadata.files_and_data.get(path) {
+            return Ok(OwnedBytes::new((&data_in_metadata[range]).to_vec()));
+        }
         let file_offsets = self.metadata.get(path).ok_or_else(|| {
             crate::StorageErrorKind::DoesNotExist
                 .with_error(anyhow::anyhow!("Missing file `{}`", path.display()))
@@ -202,6 +207,9 @@ impl Storage for BundleStorage {
     }
 
     async fn get_all(&self, path: &Path) -> crate::StorageResult<OwnedBytes> {
+        if let Some(data_in_metadata) = self.metadata.files_and_data.get(path) {
+            return Ok(OwnedBytes::new(data_in_metadata.to_vec()));
+        }
         let file_offsets = self.metadata.get(path).ok_or_else(|| {
             crate::StorageErrorKind::DoesNotExist
                 .with_error(anyhow::anyhow!("Missing file `{}`", path.display()))
@@ -224,6 +232,9 @@ impl Storage for BundleStorage {
     }
 
     async fn file_num_bytes(&self, path: &Path) -> StorageResult<u64> {
+        if let Some(data_in_metadata) = self.metadata.files_and_data.get(path) {
+            return Ok(data_in_metadata.len() as u64);
+        }
         let file_range = self.metadata.get(path).ok_or_else(|| {
             crate::StorageErrorKind::DoesNotExist
                 .with_error(anyhow::anyhow!("Missing file `{}`", path.display()))

@@ -414,7 +414,7 @@ mod test_split_store {
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 2);
             assert_eq!(local_store_stats.get("split1").cloned(), Some(4));
-            assert_eq!(local_store_stats.get("split2").cloned(), Some(31));
+            assert_eq!(local_store_stats.get("split2").cloned(), Some(69));
         }
 
         Ok(())
@@ -456,7 +456,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(31));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
         }
         {
             let split_path = temp_dir.path().join("split2");
@@ -478,7 +478,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(31));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
         }
         {
             let output = tempfile::tempdir()?;
@@ -502,7 +502,7 @@ mod test_split_store {
             split_cache_dir.path(),
             IndexingSplitStoreParams {
                 max_num_splits: 10,
-                max_num_bytes: 40,
+                max_num_bytes: 80,
             },
             merge_policy.clone(),
         )?;
@@ -526,7 +526,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(31));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
         }
 
         {
@@ -565,7 +565,7 @@ mod test_split_store {
             split_cache_dir.path(),
             IndexingSplitStoreParams {
                 max_num_splits: 10,
-                max_num_bytes: 40,
+                max_num_bytes: 80,
             },
             merge_policy.clone(),
         )?;
@@ -590,7 +590,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(31));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
         }
 
         let split1_bytes = remote_storage.get_all(Path::new("split1.split")).await?;
@@ -618,7 +618,7 @@ mod test_split_store {
 
         let cache_params = IndexingSplitStoreParams {
             max_num_splits: 100,
-            max_num_bytes: 100,
+            max_num_bytes: 1000,
         };
         let remote_storage = Arc::new(RamStorage::default());
         let merge_policy = Arc::new(StableMultitenantWithTimestampMergePolicy::default());
