@@ -25,7 +25,7 @@ use anyhow::Context;
 use futures::future::try_join_all;
 use itertools::{Either, Itertools};
 use once_cell::sync::OnceCell;
-use quickwit_common::get_from_env;
+use quickwit_common::HOTCACHE_FILENAME;
 use quickwit_directories::{CachingDirectory, HotDirectory, StorageDirectory};
 use quickwit_index_config::IndexConfig;
 use quickwit_proto::{
@@ -104,15 +104,18 @@ pub(crate) async fn open_index(
         get_split_footer_from_cache_or_fetch(index_storage.clone(), split_and_footer_offsets)
             .await?;
 
-    let (hotcache_bytes, bundle_storage) = BundleStorage::open(
+    let bundle_storage = BundleStorage::open(
         index_storage,
         split_file,
         FileSlice::new(Box::new(footer_data)),
     )?;
+    let hotcache_bytes = bundle_storage
+        .get_all(&PathBuf::from(HOTCACHE_FILENAME))
+        .await?;
     let bundle_storage_with_cache = wrap_storage_with_long_term_cache(Arc::new(bundle_storage));
     let directory = StorageDirectory::new(bundle_storage_with_cache);
     let caching_directory = CachingDirectory::new_with_unlimited_capacity(Arc::new(directory));
-    let hot_directory = HotDirectory::open(caching_directory, hotcache_bytes.read_bytes()?)?;
+    let hot_directory = HotDirectory::open(caching_directory, hotcache_bytes)?;
     let index = Index::open(hot_directory)?;
     Ok(index)
 }

@@ -48,15 +48,13 @@ pub struct BundleStorage {
 impl BundleStorage {
     /// Opens a BundleStorage.
     ///
-    /// The provided data must include the footer_bytes at the end of the slice, but it can have
-    /// more up front.
-    ///
-    /// Returns (Hotcache, Self)
+    /// The provided data must include the bundle storage metadata at the end of the slice, but it
+    /// can have more up front.
     pub fn open_from_owned_bytes(
         storage: Arc<dyn Storage>,
         bundle_filepath: PathBuf,
         split_data: OwnedBytes,
-    ) -> io::Result<(FileSlice, Self)> {
+    ) -> io::Result<Self> {
         Self::open(
             storage,
             bundle_filepath,
@@ -65,24 +63,19 @@ impl BundleStorage {
     }
     /// Opens a BundleStorage.
     ///
-    /// The provided data must include the footer_bytes at the end of the slice, but it can have
-    /// more up front.
-    ///
-    /// Returns (Hotcache, Self)
+    /// The provided data must include the bundle storage metadata at the end of the slice, but it
+    /// can have more up front.
     pub fn open(
         storage: Arc<dyn Storage>,
         bundle_filepath: PathBuf,
         split_data: FileSlice,
-    ) -> io::Result<(FileSlice, Self)> {
-        let (hotcache, metadata) = BundleStorageFileOffsets::open_from_split_data(split_data)?;
-        Ok((
-            hotcache,
-            BundleStorage {
-                storage,
-                bundle_filepath,
-                metadata,
-            },
-        ))
+    ) -> io::Result<Self> {
+        let metadata = BundleStorageFileOffsets::open(split_data)?;
+        Ok(BundleStorage {
+            storage,
+            bundle_filepath,
+            metadata,
+        })
     }
 
     /// Returns Iterator over files contained in the bundle.
@@ -99,39 +92,61 @@ pub struct CorruptedData {
     pub error: serde_json::Error,
 }
 
-const SPLIT_HOTBYTES_FOOTER_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
 const BUNDLE_METADATA_LENGTH_NUM_BYTES: usize = std::mem::size_of::<u64>();
 
 /// Returns the file offsets in the file bundle.
-#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(from = "BundleStorageFileOffsetsSerialize")]
+#[serde(into = "BundleStorageFileOffsetsSerialize")]
 pub struct BundleStorageFileOffsets {
     /// The files and their offsets in the body
     pub files: HashMap<PathBuf, Range<u64>>,
     /// Files and their data in the header.
-    pub files_and_data: HashMap<PathBuf, Vec<u8>>,
+    pub files_and_data: HashMap<PathBuf, OwnedBytes>,
+}
+
+/// Struct solely used for de/serialization of BundleStorageFileOffsets.
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+struct BundleStorageFileOffsetsSerialize {
+    /// The files and their offsets in the body
+    files: HashMap<PathBuf, Range<u64>>,
+    /// Files and their data in the header.
+    files_and_data: HashMap<PathBuf, Vec<u8>>,
+}
+
+impl From<BundleStorageFileOffsets> for BundleStorageFileOffsetsSerialize {
+    fn from(offsets: BundleStorageFileOffsets) -> Self {
+        BundleStorageFileOffsetsSerialize {
+            files: offsets.files,
+            files_and_data: offsets
+                .files_and_data
+                .into_iter()
+                .map(|(path, data)| (path, data.to_vec()))
+                .collect(),
+        }
+    }
+}
+
+impl From<BundleStorageFileOffsetsSerialize> for BundleStorageFileOffsets {
+    fn from(offsets: BundleStorageFileOffsetsSerialize) -> Self {
+        BundleStorageFileOffsets {
+            files: offsets.files,
+            files_and_data: offsets
+                .files_and_data
+                .into_iter()
+                .map(|(path, data)| (path, OwnedBytes::new(data)))
+                .collect(),
+        }
+    }
 }
 
 impl BundleStorageFileOffsets {
-    /// File need to include split data with hotcache at the end.
-    /// [Files, FileMetadata, FileMetadata Len, HotCache, HotCache Len]
-    /// Returns (Hotcache, Self)
-    fn open_from_split_data(file: FileSlice) -> io::Result<(FileSlice, Self)> {
-        let (bundle_and_hotcache_bytes, hotcache_num_bytes_data) =
-            file.split_from_end(SPLIT_HOTBYTES_FOOTER_LENGTH_NUM_BYTES);
-
-        let hotcache_num_bytes: u64 = u64::from_le_bytes(
-            hotcache_num_bytes_data
-                .read_bytes()?
-                .as_ref()
-                .try_into()
-                .unwrap(),
-        );
-        let (bundle, hotcache) =
-            bundle_and_hotcache_bytes.split_from_end(hotcache_num_bytes as usize);
-        Ok((hotcache, Self::open(bundle)?))
+    /// Open BundleStorageFileOffsets from OwnedBytes.
+    pub fn open_from_owned_bytes(data: OwnedBytes) -> io::Result<Self> {
+        Self::open(FileSlice::new(Box::new(data)))
     }
 
-    /// File need to include only the bundle part of the split.
+    /// File need to include the split.
     /// [Files, FileMetadata, FileMetadata Len]
     pub fn open(file: FileSlice) -> io::Result<Self> {
         let (tantivy_files_data, num_bytes_file_metadata) =
@@ -161,6 +176,23 @@ impl BundleStorageFileOffsets {
     /// Returns whether file exists in metadata.
     pub fn exists(&self, path: &Path) -> bool {
         self.files.contains_key(path) || self.files_and_data.contains_key(path)
+    }
+
+    /// Return files and their sizes.
+    pub fn get_stats(&self) -> Vec<(&PathBuf, u64)> {
+        let mut files_and_size: Vec<(_, _)> = self
+            .files
+            .iter()
+            .map(|(file, range)| (file, range.end - range.start))
+            .chain(
+                self.files_and_data
+                    .iter()
+                    .map(|(f, data)| (f, data.len() as u64)),
+            )
+            .collect();
+
+        files_and_size.sort();
+        files_and_size
     }
 }
 
@@ -193,7 +225,7 @@ impl Storage for BundleStorage {
         range: Range<usize>,
     ) -> crate::StorageResult<OwnedBytes> {
         if let Some(data_in_metadata) = self.metadata.files_and_data.get(path) {
-            return Ok(OwnedBytes::new((&data_in_metadata[range]).to_vec()));
+            return Ok(data_in_metadata.slice(range));
         }
         let file_offsets = self.metadata.get(path).ok_or_else(|| {
             crate::StorageErrorKind::DoesNotExist
@@ -208,7 +240,7 @@ impl Storage for BundleStorage {
 
     async fn get_all(&self, path: &Path) -> crate::StorageResult<OwnedBytes> {
         if let Some(data_in_metadata) = self.metadata.files_and_data.get(path) {
-            return Ok(OwnedBytes::new(data_in_metadata.to_vec()));
+            return Ok(data_in_metadata.clone());
         }
         let file_offsets = self.metadata.get(path).ok_or_else(|| {
             crate::StorageErrorKind::DoesNotExist
@@ -273,6 +305,8 @@ fn unsupported_operation(path: &Path) -> StorageError {
 mod tests {
     use std::fs;
 
+    use quickwit_common::get_hotcache_path;
+
     use super::*;
     use crate::{get_split_payload_streamer, PutPayload, RamStorageBuilder};
 
@@ -297,9 +331,16 @@ mod tests {
 
         let bundle_filepath = Path::new("bundle");
         let bundle_file_slice = FileSlice::new(Box::new(buffer.clone()));
-        let (hotcache, metadata) =
-            BundleStorageFileOffsets::open_from_split_data(bundle_file_slice)?;
-        assert_eq!(hotcache.read_bytes().unwrap().as_ref(), &[5, 5, 5]);
+        let metadata = BundleStorageFileOffsets::open(bundle_file_slice)?;
+
+        assert_eq!(
+            metadata
+                .files_and_data
+                .get(get_hotcache_path())
+                .unwrap()
+                .as_ref(),
+            &[5, 5, 5]
+        );
         let ram_storage = RamStorageBuilder::default()
             .put(&bundle_filepath.to_string_lossy(), &buffer)
             .build();
@@ -336,9 +377,15 @@ mod tests {
         .read_all()
         .await?;
 
-        let (hotcache, metadata) =
-            BundleStorageFileOffsets::open_from_split_data(FileSlice::from(buffer.to_vec()))?;
-        assert_eq!(hotcache.read_bytes().unwrap().as_ref(), &[1, 3, 3, 7]);
+        let metadata = BundleStorageFileOffsets::open(FileSlice::from(buffer.to_vec()))?;
+        assert_eq!(
+            metadata
+                .files_and_data
+                .get(get_hotcache_path())
+                .unwrap()
+                .as_ref(),
+            &[1, 3, 3, 7]
+        );
 
         let bundle_filepath = Path::new("bundle");
         let ram_storage = RamStorageBuilder::default()
@@ -370,8 +417,7 @@ mod tests {
     async fn bundlestorage_test_empty() -> anyhow::Result<()> {
         let buffer = get_split_payload_streamer(&[], &[])?.read_all().await?;
 
-        let (_hotcache, metadata) =
-            BundleStorageFileOffsets::open_from_split_data(FileSlice::from(buffer.to_vec()))?;
+        let metadata = BundleStorageFileOffsets::open(FileSlice::from(buffer.to_vec()))?;
 
         let bundle_filepath = PathBuf::from("bundle");
         let ram_storage = RamStorageBuilder::default()

@@ -42,7 +42,7 @@ mod payload;
 mod prefix_storage;
 mod ram_storage;
 mod retry;
-mod split;
+mod split_creation;
 mod storage_resolver;
 
 pub use tantivy::directory::OwnedBytes;
@@ -56,7 +56,7 @@ pub use self::object_storage::{
 };
 pub use self::prefix_storage::add_prefix_to_storage;
 pub use self::ram_storage::{RamStorage, RamStorageBuilder};
-pub use self::split::{get_split_payload_streamer, SplitPayload, SplitPayloadBuilder};
+pub use self::split_creation::{get_split_payload_streamer, SplitPayload, SplitPayloadBuilder};
 #[cfg(any(test, feature = "testsuite"))]
 pub use self::storage::MockStorage;
 #[cfg(any(test, feature = "testsuite"))]

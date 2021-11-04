@@ -19,14 +19,14 @@
 
 use std::convert::TryInto;
 use std::fmt::Debug;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
 use quickwit_storage::{BundleStorageFileOffsets, OwnedBytes, Storage, StorageResult};
 use tantivy::directory::error::{DeleteError, OpenReadError, OpenWriteError};
 use tantivy::directory::{FileHandle, FileSlice, WatchCallback, WatchHandle, WritePtr};
-use tantivy::{Directory, HasLen};
+use tantivy::Directory;
 
 /// BundleDirectory is a read-only directory that makes it possible to
 /// open a split and serve the file it contains via tantivy's `Directory`.
@@ -34,8 +34,7 @@ use tantivy::{Directory, HasLen};
 /// It is the `Directory` equivalent of `BundleStorage`.
 ///
 /// Split Format:
-/// [Files][FilesMetadata][FilesMetadata length 8 byte Little endian][Hotcache][Hotcache length 8
-/// byte Little endian]
+/// [Files][FilesMetadata][FilesMetadata length 8 byte Little endian]
 #[derive(Clone)]
 pub struct BundleDirectory {
     file: FileSlice,
@@ -52,69 +51,24 @@ impl Debug for BundleDirectory {
 pub async fn read_split_footer(
     storage: Arc<dyn Storage>,
     path: &Path,
-) -> StorageResult<(OwnedBytes, OwnedBytes)> {
+) -> StorageResult<OwnedBytes> {
     let file_len = storage.file_num_bytes(path).await? as usize;
 
-    let hotcache_len_bytes = storage.get_slice(path, file_len - 8..file_len).await?;
-    let hotcache_len = u64::from_le_bytes(hotcache_len_bytes.as_ref().try_into().unwrap()) as usize;
+    let bundle_metadata_len_bytes = storage.get_slice(path, file_len - 8..file_len).await?;
+    let bundle_metadata_len =
+        u64::from_le_bytes(bundle_metadata_len_bytes.as_ref().try_into().unwrap()) as usize;
 
-    let second_footer_start = file_len - 8 - hotcache_len - 8;
-    let second_footer_bytes = storage
-        .get_slice(path, second_footer_start..second_footer_start + 8)
-        .await?;
-    let second_footer_len =
-        u64::from_le_bytes(second_footer_bytes.as_ref().try_into().unwrap()) as usize;
+    let footer_start = file_len - 8 - bundle_metadata_len;
 
-    let split_footer = storage
-        .get_slice(path, second_footer_start - second_footer_len..file_len)
-        .await?;
-    let only_bundle_footer = split_footer.slice(0..second_footer_len + 8);
+    let split_footer = storage.get_slice(path, footer_start..file_len).await?;
 
-    Ok((split_footer, only_bundle_footer))
-}
-
-/// Return two slices for given split: [body and bundle meta data] [hotcache]
-fn split_footer(file_slice: FileSlice) -> io::Result<(FileSlice, FileSlice)> {
-    let (body_and_footer_slice, footer_len_slice) = file_slice.split_from_end(8);
-    let footer_len_bytes = footer_len_slice.read_bytes()?;
-    let footer_len = u64::from_le_bytes(footer_len_bytes.as_slice().try_into().unwrap());
-    Ok(body_and_footer_slice.split_from_end(footer_len as usize))
-}
-
-/// Return two slices for given split: [body and bundle meta data] [hotcache]
-pub fn get_hotcache_from_split(data: OwnedBytes) -> io::Result<OwnedBytes> {
-    let split_file = FileSlice::new(Box::new(data));
-    let (_, hotcache) = split_footer(split_file)?;
-    hotcache.read_bytes()
+    Ok(split_footer)
 }
 
 impl BundleDirectory {
-    /// Get files and their sizes in a split.
-    pub fn get_stats_split(data: OwnedBytes) -> io::Result<Vec<(PathBuf, u64)>> {
-        let split_file = FileSlice::new(Box::new(data));
-        let (body_and_bundle_metadata, hot_cache) = split_footer(split_file)?;
-        let file_offsets = BundleStorageFileOffsets::open(body_and_bundle_metadata)?;
-
-        let mut files_and_size: Vec<(_, _)> = file_offsets
-            .files
-            .into_iter()
-            .map(|(file, range)| (file, range.end - range.start))
-            .collect();
-
-        files_and_size.push((
-            PathBuf::from("hotcache".to_string()),
-            hot_cache.len() as u64,
-        ));
-
-        files_and_size.sort();
-        Ok(files_and_size)
-    }
-
     /// Opens a split file.
     pub fn open_split(split_file: FileSlice) -> io::Result<BundleDirectory> {
-        // First we remove the hotcache from our file slice.
-        let (body_and_bundle_metadata, _hot_cache) = split_footer(split_file)?;
-        BundleDirectory::open_bundle(body_and_bundle_metadata)
+        BundleDirectory::open_bundle(split_file)
     }
 
     /// Opens a BundleDirectory, given a file containing the bundle data.
@@ -132,7 +86,7 @@ impl Directory for BundleDirectory {
 
     fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
         if let Some(data_in_metadata) = self.file_offsets.files_and_data.get(path) {
-            return Ok(FileSlice::from(data_in_metadata.to_vec()));
+            return Ok(FileSlice::new(Box::new(data_in_metadata.clone())));
         }
 
         let byte_range = self
@@ -183,6 +137,7 @@ impl Directory for BundleDirectory {
 mod tests {
     use std::fs::File;
     use std::io::Write;
+    use std::path::PathBuf;
 
     use quickwit_storage::{get_split_payload_streamer, PutPayload};
 
@@ -209,12 +164,14 @@ mod tests {
 
         let buffer = split_streamer.read_all().await?;
 
-        // check stats
-        let stats = BundleDirectory::get_stats_split(buffer)?;
+        // Check stats
+        let split_file = FileSlice::new(Box::new(buffer));
+        let file_offsets = BundleStorageFileOffsets::open(split_file)?;
+        let stats = file_offsets.get_stats();
 
-        assert_eq!(stats[0], (PathBuf::from("f1".to_string()), 2_u64));
-        assert_eq!(stats[1], (PathBuf::from("f2".to_string()), 3_u64));
-        assert_eq!(stats[2], (PathBuf::from("hotcache".to_string()), 18_u64));
+        assert_eq!(stats[0], (&PathBuf::from("f1".to_string()), 2_u64));
+        assert_eq!(stats[1], (&PathBuf::from("f2".to_string()), 3_u64));
+        assert_eq!(stats[2], (&PathBuf::from("hotcache".to_string()), 18_u64));
 
         Ok(())
     }

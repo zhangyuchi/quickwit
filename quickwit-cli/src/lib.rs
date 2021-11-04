@@ -33,10 +33,9 @@ use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use humansize::{file_size_opts, FileSize};
 use json_comments::StripComments;
 use quickwit_actors::{ActorExitStatus, ActorHandle, ObservationType, Universe};
+use quickwit_common::get_hotcache_path;
 use quickwit_core::{create_index, delete_index, garbage_collect_index, reset_index};
-use quickwit_directories::{
-    get_hotcache_from_split, read_split_footer, BundleDirectory, HotDirectory,
-};
+use quickwit_directories::{read_split_footer, HotDirectory};
 use quickwit_index_config::{DefaultIndexConfigBuilder, IndexConfig};
 use quickwit_indexing::actors::{
     IndexerParams, IndexingPipelineParams, IndexingPipelineSupervisor,
@@ -47,7 +46,9 @@ use quickwit_metastore::checkpoint::Checkpoint;
 use quickwit_metastore::{IndexMetadata, MetastoreUriResolver};
 use quickwit_proto::{SearchRequest, SearchResponse};
 use quickwit_search::{single_node_search, SearchResponseRest};
-use quickwit_storage::{quickwit_storage_uri_resolver, BundleStorage, Storage};
+use quickwit_storage::{
+    quickwit_storage_uri_resolver, BundleStorage, BundleStorageFileOffsets, Storage,
+};
 use quickwit_telemetry::payload::TelemetryEvent;
 use tracing::debug;
 
@@ -208,9 +209,9 @@ pub async fn extract_split_cli(args: ExtractSplitArgs) -> anyhow::Result<()> {
     let index_storage = storage_uri_resolver.resolve(&index_metadata.index_uri)?;
 
     let split_file = PathBuf::from(format!("{}.split", args.split_id));
-    let (_, bundle_footer) = read_split_footer(index_storage.clone(), &split_file).await?;
+    let bundle_footer = read_split_footer(index_storage.clone(), &split_file).await?;
 
-    let (_hotcache_bytes, bundle_storage) =
+    let bundle_storage =
         BundleStorage::open_from_owned_bytes(index_storage, split_file, bundle_footer)?;
 
     std::fs::create_dir_all(args.target_folder.to_owned())?;
@@ -235,10 +236,10 @@ pub async fn inspect_split_cli(args: InspectSplitArgs) -> anyhow::Result<()> {
     let index_storage = storage_uri_resolver.resolve(&index_metadata.index_uri)?;
 
     let split_file = PathBuf::from(format!("{}.split", args.split_id));
-    let (split_footer, _) = read_split_footer(index_storage, &split_file).await?;
+    let split_footer = read_split_footer(index_storage, &split_file).await?;
 
-    let stats = BundleDirectory::get_stats_split(split_footer.clone())?;
-    let hotcache_bytes = get_hotcache_from_split(split_footer)?;
+    let file_offsets = BundleStorageFileOffsets::open_from_owned_bytes(split_footer)?;
+    let stats = file_offsets.get_stats();
 
     for (path, size) in stats {
         let readable_size = size.file_size(file_size_opts::DECIMAL).unwrap();
@@ -246,6 +247,11 @@ pub async fn inspect_split_cli(args: InspectSplitArgs) -> anyhow::Result<()> {
     }
 
     if args.verbose {
+        let hotcache_bytes = file_offsets
+            .files_and_data
+            .get(get_hotcache_path())
+            .expect("couldn't find hotcache in footer")
+            .clone();
         let hotcache_stats = HotDirectory::get_stats_per_file(hotcache_bytes)?;
         for (path, size) in hotcache_stats {
             let readable_size = size.file_size(file_size_opts::DECIMAL).unwrap();

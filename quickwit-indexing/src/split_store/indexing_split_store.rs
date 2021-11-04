@@ -414,7 +414,7 @@ mod test_split_store {
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 2);
             assert_eq!(local_store_stats.get("split1").cloned(), Some(4));
-            assert_eq!(local_store_stats.get("split2").cloned(), Some(69));
+            assert_eq!(local_store_stats.get("split2").cloned(), Some(58));
         }
 
         Ok(())
@@ -456,7 +456,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(58));
         }
         {
             let split_path = temp_dir.path().join("split2");
@@ -478,7 +478,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(58));
         }
         {
             let output = tempfile::tempdir()?;
@@ -526,7 +526,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(58));
         }
 
         {
@@ -590,7 +590,7 @@ mod test_split_store {
                 .exists());
             let local_store_stats = split_store.inspect_local_store().await;
             assert_eq!(local_store_stats.len(), 1);
-            assert_eq!(local_store_stats.get("split1").cloned(), Some(69));
+            assert_eq!(local_store_stats.get("split1").cloned(), Some(58));
         }
 
         let split1_bytes = remote_storage.get_all(Path::new("split1.split")).await?;

@@ -28,6 +28,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use quickwit_common::HOTCACHE_FILENAME;
 use rusoto_core::ByteStream;
+use tantivy::directory::OwnedBytes;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
@@ -130,7 +131,7 @@ impl PutPayload for SplitPayload {
     }
 }
 
-/// compute split offsets used by the SplitStreamer
+/// Compute split offsets used by the SplitPayload.
 pub fn get_split_payload_streamer(
     split_files: &[PathBuf],
     hotcache: &[u8],
@@ -216,7 +217,7 @@ impl SplitPayloadBuilder {
             files: metadata_with_fixed_paths,
             files_and_data: iter::once((
                 PathBuf::from(HOTCACHE_FILENAME.to_string()),
-                hotcache.to_owned(),
+                OwnedBytes::new(hotcache.to_owned()),
             ))
             .collect(),
         })?;
@@ -224,8 +225,6 @@ impl SplitPayloadBuilder {
         footer_bytes.write_all(metadata_json.as_bytes())?;
         let metadata_json_len = metadata_json.len() as u64;
         footer_bytes.write_all(&metadata_json_len.to_le_bytes())?;
-        footer_bytes.write_all(hotcache)?;
-        footer_bytes.write_all(&hotcache.len().to_le_bytes())?;
 
         let mut files_and_offsets = self
             .metadata
@@ -398,8 +397,8 @@ mod tests {
         let total_len = split_streamer.len().await?;
         let all_data = fetch_data(&split_streamer, 0..total_len).await?;
 
-        // last 8 bytes are the length of the hotcache bytes
-        assert_eq!(all_data[all_data.len() - 8..], 3_u64.to_le_bytes());
+        // last 8 bytes are the length of the bundle metadata
+        assert_eq!(all_data[all_data.len() - 8..], 97_u64.to_le_bytes());
         Ok(())
     }
 }
