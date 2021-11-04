@@ -474,7 +474,7 @@ pub fn load_metas_and_segments(
     for split_id in split_ids.iter() {
         let split_filename = split_file(split_id);
         let split_fileslice = mmap_directory.open_read(Path::new(&split_filename))?;
-        let split_directory = BundleDirectory::open_split(split_fileslice)?;
+        let split_directory = BundleDirectory::open_bundle(split_fileslice)?;
         let index = Index::open(split_directory)?;
         index_metas.push(index.load_metas()?);
         let searchable_segments = index.searchable_segments()?;

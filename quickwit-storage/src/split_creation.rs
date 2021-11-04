@@ -365,30 +365,30 @@ mod tests {
         assert_eq!(fetch_data(&split_streamer, 0..2).await?, vec![123, 76]);
         assert_eq!(fetch_data(&split_streamer, 0..3).await?, vec![123, 76, 99]);
 
-        // border case skip and take cross adjacent blocks
+        // border 2 case skip and take cross adjacent blocks
         assert_eq!(fetch_data(&split_streamer, 1..3).await?, vec![76, 99]);
 
-        // border case skip and take in seperate blocks with full block between
+        // border 3 case skip and take in seperate blocks with full block between
         assert_eq!(
             fetch_data(&split_streamer, 1..6).await?,
             vec![76, 99, 55, 44, 123]
         );
 
-        // border case 2 exact middle block
+        // border case 4 exact middle block
         assert_eq!(fetch_data(&split_streamer, 2..5).await?, vec![99, 55, 44]);
 
-        // border case, no skip but take in middle block
+        // border case 5, no skip but take in middle block
         assert_eq!(fetch_data(&split_streamer, 2..4).await?, vec![99, 55]);
 
-        // border case skip and take in middle block
+        // border case 6 skip and take in middle block
         assert_eq!(fetch_data(&split_streamer, 3..4).await?, vec![55]);
 
-        // border case 3 start exact last block - footer
+        // border case 7 start exact last block - footer
         assert_eq!(
             fetch_data(&split_streamer, 5..10).await?,
             vec![123, 34, 102, 105, 108]
         );
-        // border case 4 skip and take in last block  - footer
+        // border case 8 skip and take in last block  - footer
         assert_eq!(
             fetch_data(&split_streamer, 6..10).await?,
             vec![34, 102, 105, 108]

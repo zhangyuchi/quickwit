@@ -25,7 +25,7 @@ use anyhow::Context;
 use futures::future::try_join_all;
 use itertools::{Either, Itertools};
 use once_cell::sync::OnceCell;
-use quickwit_common::HOTCACHE_FILENAME;
+use quickwit_common::{get_from_env, HOTCACHE_FILENAME};
 use quickwit_directories::{CachingDirectory, HotDirectory, StorageDirectory};
 use quickwit_index_config::IndexConfig;
 use quickwit_proto::{

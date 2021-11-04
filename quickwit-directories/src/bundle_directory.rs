@@ -66,11 +66,6 @@ pub async fn read_split_footer(
 }
 
 impl BundleDirectory {
-    /// Opens a split file.
-    pub fn open_split(split_file: FileSlice) -> io::Result<BundleDirectory> {
-        BundleDirectory::open_bundle(split_file)
-    }
-
     /// Opens a BundleDirectory, given a file containing the bundle data.
     pub fn open_bundle(file: FileSlice) -> io::Result<BundleDirectory> {
         let file_offsets = BundleStorageFileOffsets::open(file.clone())?;
@@ -199,7 +194,7 @@ mod tests {
 
         let bundle_file_slice = FileSlice::from(buffer.to_vec());
 
-        let bundle_dir = BundleDirectory::open_split(bundle_file_slice)?;
+        let bundle_dir = BundleDirectory::open_bundle(bundle_file_slice)?;
 
         assert!(bundle_dir.exists(Path::new("f1")).unwrap());
         assert!(bundle_dir.exists(Path::new("f2")).unwrap());
@@ -233,7 +228,7 @@ mod tests {
 
         let data = split_streamer.read_all().await?;
 
-        let bundle_dir = BundleDirectory::open_split(FileSlice::from(data.to_vec()))?;
+        let bundle_dir = BundleDirectory::open_bundle(FileSlice::from(data.to_vec()))?;
 
         let f1_data = bundle_dir.atomic_read(Path::new("f1"))?;
         assert_eq!(&*f1_data, &[123u8, 76u8]);

@@ -2507,7 +2507,6 @@ dependencies = [
  "rusoto_core 0.46.0",
  "rusoto_s3",
  "serde",
- "serde_derive",
  "serde_json",
  "tantivy",
  "tempfile",

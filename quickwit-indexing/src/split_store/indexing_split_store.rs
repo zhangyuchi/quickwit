@@ -174,7 +174,7 @@ impl IndexingSplitStore {
             }
         }
 
-        tokio::fs::remove_dir(split_folder).await?;
+        tokio::fs::remove_dir_all(split_folder).await?;
 
         Ok(())
     }

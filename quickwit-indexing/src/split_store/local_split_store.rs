@@ -41,7 +41,7 @@ pub fn get_tantivy_directory_from_split_bundle(
         )
     })?)?;
     let split_fileslice = mmap_directory.open_read(Path::new(&split_file))?;
-    Ok(Box::new(BundleDirectory::open_split(split_fileslice)?))
+    Ok(Box::new(BundleDirectory::open_bundle(split_fileslice)?))
 }
 
 #[derive(Clone, Debug)]
@@ -353,7 +353,7 @@ mod tests {
 
         let data = split_streamer.read_all().await?;
 
-        let bundle_dir = BundleDirectory::open_split(FileSlice::from(data.to_vec()))?;
+        let bundle_dir = BundleDirectory::open_bundle(FileSlice::from(data.to_vec()))?;
 
         let f1_data = bundle_dir.atomic_read(Path::new("f1"))?;
         assert_eq!(&*f1_data, &[123u8, 76u8]);
