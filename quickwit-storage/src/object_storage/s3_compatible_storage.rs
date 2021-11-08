@@ -460,7 +460,7 @@ impl Storage for S3CompatibleObjectStorage {
         payload: Box<dyn crate::PutPayload>,
     ) -> crate::StorageResult<()> {
         let key = self.key(path);
-        let total_len = payload.len().await?;
+        let total_len = payload.len();
         let part_num_bytes = self.multipart_policy.part_num_bytes(total_len);
         if part_num_bytes >= total_len {
             self.put_single_part(&key, payload, total_len).await?;

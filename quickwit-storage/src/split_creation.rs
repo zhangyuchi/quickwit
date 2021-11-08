@@ -19,13 +19,13 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{self, Cursor, ErrorKind, SeekFrom, Write};
+use std::io::{self, ErrorKind, SeekFrom, Write};
 use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use quickwit_common::HOTCACHE_FILENAME;
 use rusoto_core::ByteStream;
 use tantivy::directory::OwnedBytes;
@@ -34,100 +34,41 @@ use tokio_util::io::ReaderStream;
 
 use crate::{BundleStorageFileOffsets, PutPayload};
 
-trait DataSource: tokio::io::AsyncRead + Send + Sync + Unpin {}
-impl<T: tokio::io::AsyncRead + Send + Sync + Unpin> DataSource for T {}
-
 /// Payload of a split which builds the split bundle and hotcache on the fly and streams it to the
 /// storage.
 #[derive(Clone)]
 pub struct SplitPayload {
-    /// Total split size
-    pub split_size: usize,
-    /// Files and their target range in the split bundle.
-    pub files_and_offsets: Vec<(PathBuf, Range<usize>)>,
+    payloads: Vec<Box<dyn PutPayload>>,
     /// bytes range of the footer (hotcache + bundle metadata)
-    pub footer_range: Range<usize>,
-    /// data of the footer, containng
-    /// [bundle metadata, bundle metadata len 8byte, hotcache, hotcache len 8 bytes]
-    pub footer_bytes: Vec<u8>,
-    /// The end offset of the data provider [File, .. File, SplitFooter]
-    pub block_offsets: Vec<Range<usize>>,
-}
-
-impl SplitPayload {
-    /// Get start and end block index for a range, where start of the Range is in the start block
-    /// and end of the range is in the end block.
-    fn get_start_and_end_block_index(&self, range: Range<usize>) -> io::Result<(usize, usize)> {
-        get_start_and_end_block_index(&self.block_offsets, range)
-    }
-
-    /// Get datasource for data block at index.
-    ///
-    /// We apply seek now because the returned DataSource trait does not allow it.
-    async fn get_datasource(
-        &self,
-        index: usize,
-        start_file_offset: u64,
-    ) -> io::Result<Box<dyn DataSource>> {
-        if index < self.files_and_offsets.len() {
-            let (path, _) = &self.files_and_offsets[index];
-            let mut ds = Box::new(tokio::fs::File::open(path).await?);
-            if start_file_offset != 0 {
-                ds.seek(SeekFrom::Start(start_file_offset)).await?;
-            }
-            Ok(ds)
-        } else {
-            let mut ds = Box::new(Cursor::new(self.footer_bytes.to_vec()));
-            if start_file_offset != 0 {
-                ds.seek(SeekFrom::Start(start_file_offset)).await?;
-            }
-            Ok(ds)
-        }
-    }
+    pub footer_range: Range<u64>,
 }
 
 #[async_trait]
 impl PutPayload for SplitPayload {
-    async fn len(&self) -> io::Result<u64> {
-        Ok(self.split_size as u64)
+    fn len(&self) -> u64 {
+        self.payloads.iter().map(|payload| payload.len()).sum()
     }
 
-    async fn range_byte_stream(&self, range: Range<u64>) -> io::Result<ByteStream> {
-        let (start_index, end_index) =
-            self.get_start_and_end_block_index(range.start as usize..range.end as usize)?;
-
-        let start_file_offset = range.start - self.block_offsets[start_index].start as u64;
-        // If we have skip and take in the same block, we need to take the skip into account for
-        // the take calculation
-        let same_block_skip = if start_index == end_index {
-            start_file_offset
-        } else {
-            0
-        };
-        let last_block_take =
-            range.end - self.block_offsets[end_index].start as u64 - same_block_skip;
-
-        // build data_sources, apply seek in first
-        let mut datasources: Vec<Box<dyn DataSource>> = vec![];
-        for index in start_index..=end_index {
-            // seek in first datasource
-            let seek_offset = if index == start_index {
-                start_file_offset
+    async fn range_byte_stream(&self, mut range: Range<u64>) -> io::Result<ByteStream> {
+        let mut bytestreams: Vec<_> = Vec::new();
+        for payload in &self.payloads {
+            let payload_len = payload.len();
+            if range.start >= payload.len() {
+                // The current payload does not intersect with the range
+                range = (range.start - payload_len)..(range.end - payload_len);
+                continue;
+            } else if range.end > payload_len {
+                // This payload intersects with the range, and it is NOT the last one.
+                bytestreams.push(payload.range_byte_stream(range.start..payload_len).await?);
+                range = range.start - payload_len..range.end - payload_len;
             } else {
-                0
-            };
-            let mut ds = self.get_datasource(index, seek_offset).await?;
-
-            // apply take on last datasource
-            if index == end_index {
-                ds = Box::new(ds.take(last_block_take));
+                // This is the last chunk
+                bytestreams.push(payload.range_byte_stream(range.start..range.end).await?);
+                break;
             }
-            datasources.push(ds);
         }
-
-        // Combine and convert to bytestream
-        let stream = futures::stream::iter(datasources.into_iter()).flat_map(ReaderStream::new);
-        Ok(ByteStream::new(stream))
+        let concat_stream = ByteStream::new(stream::iter(bytestreams).flatten());
+        Ok(concat_stream)
     }
 }
 
@@ -137,31 +78,39 @@ pub fn get_split_payload_streamer(
     hotcache: &[u8],
 ) -> io::Result<SplitPayload> {
     let mut split_offset_computer = SplitPayloadBuilder::new();
-
     for file in split_files {
         split_offset_computer.add_file(file)?;
     }
-
     let offsets = split_offset_computer.finalize(hotcache)?;
-
     Ok(offsets)
 }
 
-/// Get start and end block index for a range, where start of the Range is in the start block
-/// and end of the range is in the end block.
-fn get_start_and_end_block_index(
-    blocks_ranges: &[Range<usize>],
-    range: Range<usize>,
-) -> io::Result<(usize, usize)> {
-    let get_start = blocks_ranges
-        .iter()
-        .position(|block_range| block_range.end > range.start)
-        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "range is out of Range"))?;
-    let get_end = blocks_ranges
-        .iter()
-        .position(|block_range| block_range.end >= range.end)
-        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "range is out of Range"))?;
-    Ok((get_start, get_end))
+#[derive(Clone)]
+struct FilePayload {
+    len: u64,
+    path: PathBuf,
+}
+
+#[async_trait]
+impl PutPayload for FilePayload {
+    fn len(&self) -> u64 {
+        self.len
+    }
+
+    async fn range_byte_stream(&self, range: Range<u64>) -> io::Result<ByteStream> {
+        assert!(!range.is_empty());
+        assert!(range.end <= self.len);
+        let mut file = tokio::fs::File::open(&self.path).await?;
+        if range.start > 0 {
+            file.seek(SeekFrom::Start(range.start)).await?;
+        }
+        if range.end == self.len {
+            return Ok(ByteStream::new(ReaderStream::new(file)));
+        }
+        Ok(ByteStream::new(ReaderStream::new(
+            file.take(range.end - range.start),
+        )))
+    }
 }
 
 /// SplitOffsetComputer is used to bundle together multiple files into a single split file.
@@ -226,34 +175,22 @@ impl SplitPayloadBuilder {
         let metadata_json_len = metadata_json.len() as u64;
         footer_bytes.write_all(&metadata_json_len.to_le_bytes())?;
 
-        let mut files_and_offsets = self
-            .metadata
-            .files
-            .iter()
-            .map(|(file, range)| (file.to_owned(), range.start as usize..range.end as usize))
-            .collect::<Vec<_>>();
-        files_and_offsets.sort_by_key(|(_file, range)| range.start);
+        let mut payloads: Vec<Box<dyn PutPayload>> = Vec::new();
+        for (path, byte_range) in self.metadata.files {
+            let file_payload = FilePayload {
+                path,
+                len: byte_range.end - byte_range.start,
+            };
+            payloads.push(Box::new(file_payload));
+        }
 
-        let mut block_offsets = self
-            .metadata
-            .files
-            .iter()
-            .map(|(_, range)| (range.start as usize..range.end as usize))
-            .collect::<Vec<_>>();
-        block_offsets.sort_by_key(|range| range.start);
+        payloads.push(Box::new(footer_bytes.to_vec()));
 
-        let split_size = self.current_offset + footer_bytes.len();
-        block_offsets.push(self.current_offset..split_size);
-
-        let split_offsets = SplitPayload {
-            split_size,
-            files_and_offsets,
-            footer_range: self.current_offset..self.current_offset + footer_bytes.len(),
-            footer_bytes,
-            block_offsets,
-        };
-
-        Ok(split_offsets)
+        Ok(SplitPayload {
+            payloads,
+            footer_range: self.current_offset as u64
+                ..self.current_offset as u64 + footer_bytes.len() as u64,
+        })
     }
 }
 

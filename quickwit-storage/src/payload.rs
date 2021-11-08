@@ -28,20 +28,21 @@ use tantivy::directory::OwnedBytes;
 /// PutPayload is used to upload data and support multipart.
 pub trait PutPayload: PutPayloadClone + Send + Sync {
     /// Return the total length of the payload.
-    async fn len(&self) -> io::Result<u64>;
+    fn len(&self) -> u64;
+
     /// Retrieve bytestream for specified range.
     async fn range_byte_stream(&self, range: Range<u64>) -> io::Result<ByteStream>;
 
     /// Retrieve complete bytestream.
     async fn byte_stream(&self) -> io::Result<ByteStream> {
-        let total_len = self.len().await?;
+        let total_len = self.len();
         let range = 0..total_len;
         self.range_byte_stream(range).await
     }
 
     /// Load the whole Payload into memory.
     async fn read_all(&self) -> io::Result<OwnedBytes> {
-        let total_len = self.len().await?;
+        let total_len = self.len();
         let range = 0..total_len;
         let mut reader = self.range_byte_stream(range).await?.into_async_read();
 
@@ -72,8 +73,8 @@ impl Clone for Box<dyn PutPayload> {
 
 #[async_trait]
 impl PutPayload for Vec<u8> {
-    async fn len(&self) -> io::Result<u64> {
-        Ok(self.len() as u64)
+    fn len(&self) -> u64 {
+        self.len() as u64
     }
 
     async fn range_byte_stream(&self, range: Range<u64>) -> io::Result<ByteStream> {

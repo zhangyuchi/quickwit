@@ -24,7 +24,7 @@ use std::{fs, io};
 
 use quickwit_common::split_file;
 use quickwit_directories::BundleDirectory;
-use quickwit_storage::{get_split_payload_streamer, StorageErrorKind, StorageResult};
+use quickwit_storage::{get_split_payload_streamer, PutPayload, StorageErrorKind, StorageResult};
 use tantivy::directory::MmapDirectory;
 use tantivy::Directory;
 use tracing::{error, warn};
@@ -132,7 +132,7 @@ impl LocalSplitStore {
                 // TODO: Do we need the hotcache?
                 let split_streamer = get_split_payload_streamer(&paths, &[])?;
 
-                let split_num_bytes = split_streamer.split_size;
+                let split_num_bytes = split_streamer.len() as usize;
                 total_size_in_bytes += split_num_bytes;
                 split_files.insert(split_id, (split_num_bytes, split_file));
             }

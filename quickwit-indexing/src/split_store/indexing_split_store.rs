@@ -134,7 +134,7 @@ impl IndexingSplitStore {
         info!("store-split-remote-start");
 
         let start = Instant::now();
-        let split_num_bytes = put_payload.len().await?;
+        let split_num_bytes = put_payload.len();
 
         let key = PathBuf::from(quickwit_common::split_file(&split.split_id));
         self.remote_storage
