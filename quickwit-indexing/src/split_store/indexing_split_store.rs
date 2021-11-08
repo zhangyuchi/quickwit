@@ -124,7 +124,7 @@ impl IndexingSplitStore {
     /// In order to limit the write IO, the file might be moved (and not copied into
     /// the store).
     /// In other words, after calling this function the file will not be available
-    /// at `split_path` anymore.
+    /// at `split_folder` anymore.
     pub async fn store_split<'a>(
         &'a self,
         split: &'a SplitMetadata,
@@ -268,7 +268,7 @@ mod test_split_store {
 
     use super::{IndexingSplitStore, IndexingSplitStoreParams};
     use crate::split_store::SPLIT_CACHE_DIR_NAME;
-    use crate::StableMultitenantWithTimestampMergePolicy;
+    use crate::{MergePolicy, StableMultitenantWithTimestampMergePolicy};
 
     #[tokio::test]
     async fn test_create_should_error_with_wrong_num_files() -> anyhow::Result<()> {
@@ -616,6 +616,9 @@ mod test_split_store {
         fs::create_dir_all(&root_path.join("a.split")).await?;
         fs::create_dir_all(&root_path.join("b.split")).await?;
 
+        fs::write(root_path.join("a.split").join("myfile"), b"abcdefgh").await?;
+        fs::write(root_path.join("b.split").join("myfile"), b"abcdefgh").await?;
+
         let cache_params = IndexingSplitStoreParams {
             max_num_splits: 100,
             max_num_bytes: 1000,
@@ -641,6 +644,61 @@ mod test_split_store {
             .await?;
         assert!(!root_path.join("a.split").as_path().exists());
         assert!(root_path.join("b.split").as_path().exists());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_mature_splits() -> anyhow::Result<()> {
+        #[derive(Debug)]
+        struct SplitsAreMature {}
+        impl MergePolicy for SplitsAreMature {
+            fn operations(
+                &self,
+                _: &mut Vec<SplitMetadata>,
+            ) -> Vec<crate::merge_policy::MergeOperation> {
+                unimplemented!()
+            }
+            fn is_mature(&self, _: &SplitMetadata) -> bool {
+                true
+            }
+        }
+        let temp_dir = tempfile::tempdir()?;
+        let split_cache_dir = tempdir()?;
+        let remote_storage = Arc::new(RamStorage::default());
+        let split_store = IndexingSplitStore::create_with_local_store(
+            remote_storage,
+            split_cache_dir.path(),
+            IndexingSplitStoreParams::default(),
+            Arc::new(SplitsAreMature {}),
+        )?;
+        {
+            let split_path = temp_dir.path().join("split1");
+            fs::create_dir_all(&split_path).await?;
+            let file_in_split = split_path.join("myfile");
+            fs::write(file_in_split.to_owned(), b"abcdefgh").await?;
+            let split_metadata1 = create_test_split_metadata("split1");
+
+            split_store
+                .store_split(
+                    &split_metadata1,
+                    &split_path,
+                    Box::new(get_split_payload_streamer(
+                        &[file_in_split.to_owned()],
+                        &[1, 2, 3],
+                    )?),
+                )
+                .await?;
+            assert!(!split_path.exists());
+            assert!(!split_cache_dir
+                .path()
+                .join(SPLIT_CACHE_DIR_NAME)
+                .join("split1.split")
+                .exists());
+            let local_store_stats = split_store.inspect_local_store().await;
+            assert_eq!(local_store_stats.len(), 0);
+            assert_eq!(local_store_stats.get("split1").cloned(), None);
+        }
+
         Ok(())
     }
 }
