@@ -26,8 +26,9 @@ use quickwit_actors::{
     create_mailbox, Actor, ActorContext, ActorExitStatus, ActorHandle, AsyncActor, Health,
     KillSwitch, QueueCapacity, Supervisable,
 };
+use quickwit_config::{IndexingSettings, SourceConfig};
 use quickwit_metastore::{Metastore, SplitState};
-use quickwit_storage::StorageUriResolver;
+use quickwit_storage::{Storage, StorageUriResolver};
 use tokio::join;
 use tracing::{debug, error, info, info_span, instrument, Span};
 
@@ -36,8 +37,8 @@ use crate::actors::{
     GarbageCollector, Indexer, IndexerParams, MergeExecutor, MergePlanner, Packager, Publisher,
     Uploader,
 };
-use crate::models::IndexingStatistics;
-use crate::source::{quickwit_supported_sources, SourceActor, SourceConfig};
+use crate::models::{IndexingDirectory, IndexingStatistics};
+use crate::source::{quickwit_supported_sources, SourceActor};
 use crate::split_store::{IndexingSplitStore, IndexingSplitStoreParams};
 use crate::{MergePolicy, StableMultitenantWithTimestampMergePolicy};
 
@@ -477,12 +478,11 @@ impl AsyncActor for IndexingPipelineSupervisor {
 
 pub struct IndexingPipelineParams {
     pub index_id: String,
+    pub indexing_directory: IndexingDirectory,
+    pub indexing_settings: IndexingSettings,
     pub source_config: SourceConfig,
-    pub indexer_params: IndexerParams,
     pub metastore: Arc<dyn Metastore>,
     pub storage_uri_resolver: StorageUriResolver,
-    pub demux_enabled: bool,
-    pub merge_enabled: bool,
 }
 
 #[cfg(test)]
@@ -549,15 +549,13 @@ mod tests {
             source_type: "file".to_string(),
             params: json!({ "filepath": PathBuf::from("data/test_corpus.json") }),
         };
-        let indexer_params = IndexerParams::for_test().await?;
         let indexing_pipeline_params = IndexingPipelineParams {
             index_id: "test-index".to_string(),
+            indexing_directory: IndexingDirectory::for_test().await?,
+            indexing_settings: IndexingSettings::for_test(),
             source_config,
-            indexer_params,
             metastore: Arc::new(metastore),
             storage_uri_resolver: StorageUriResolver::for_test(),
-            merge_enabled: true,
-            demux_enabled: false,
         };
         let indexing_supervisor = IndexingPipelineSupervisor::new(indexing_pipeline_params);
         let (_pipeline_mailbox, pipeline_handler) =

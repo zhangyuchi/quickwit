@@ -51,21 +51,26 @@ pub use self::merge_policy::{MergePolicy, StableMultitenantWithTimestampMergePol
 pub async fn index_data(
     index_id: String,
     metastore: Arc<dyn Metastore>,
-    indexer_params: IndexerParams,
-    source_config: SourceConfig,
     storage_uri_resolver: StorageUriResolver,
 ) -> anyhow::Result<IndexingStatistics> {
-    let universe = Universe::new();
+    let index_config: IndexConfig;
+    index_config.validate();
+    let indexing_pipeline_params = IndexingPipelineParams {
+        index_id: index_id.to_string(),
+        indexing_directory: IndexingDirectory::create_in_dir().await?,
+        indexing_settings: index_config.indexing_settings,
+        source_config: index_config.source_configs.pop().unwrap(),
+        metastore: self.metastore.clone(),
+        storage_uri_resolver: self.storage_uri_resolver.clone(),
+    };
     let indexing_pipeline_params = IndexingPipelineParams {
         index_id,
-        source_config,
-        indexer_params,
+        indexing_directory: indexing_settings: source_config,
         metastore,
         storage_uri_resolver,
-        merge_enabled: true,
-        demux_enabled: false,
     };
     let indexing_supervisor = IndexingPipelineSupervisor::new(indexing_pipeline_params);
+    let universe = Universe::new();
     let (_pipeline_mailbox, pipeline_handler) =
         universe.spawn_actor(indexing_supervisor).spawn_async();
     let (pipeline_termination, statistics) = pipeline_handler.join().await;

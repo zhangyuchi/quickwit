@@ -19,10 +19,12 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{bail, Context};
 use byte_unit::Byte;
 use quickwit_index_config::FieldMappingEntry;
+use quickwit_storage::load_file;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,13 +50,24 @@ pub struct MergePolicy {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct IndexingSettings {
-    pub demux_field: String,
     pub timestamp_field: String,
     pub commit_timeout_secs: usize,
     /// The maximum number of documents allowed in a split.
     pub split_max_num_docs: usize,
+    pub demux_enabled: bool,
+    pub demux_field: String,
+    pub merge_enabled: bool,
     pub merge_policy: MergePolicy,
     pub resources: IndexingResources,
+}
+
+impl IndexingSettings {
+    pub fn commit_timeout(&self) -> Duration {
+        Duration::from_secs(self.commit_timeout_secs as u64)
+    }
+
+    #[cfg(test)]
+    pub fn for_test() -> Self {}
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -62,11 +75,32 @@ pub struct SearchSettings {
     pub default_search_fields: Vec<String>,
 }
 
+/// A `SourceConfig` describes the properties of a source. A source config can be created
+/// dynamically or loaded from a file consisting of a JSON object with 3 mandatory properties:
+/// - `source_id`, a name identifying the source uniquely;
+/// - `source_type`, the type of the target source, for instance, `file` or `kafka`;
+/// - `params`, an arbitrary object whose keys and values are specific to the source type.
+///
+/// For instance, a valid source config JSON object for a Kafka source is:
+/// ```json
+/// {
+///     "source_id": "my-kafka-source",
+///     "source_type": "kafka",
+///     "params": {
+///         "topic": "my-kafka-source-topic",
+///         "client_log_level": "warn",
+///         "client_params": {
+///             "bootstrap.servers": "localhost:9092",
+///             "group.id": "my-kafka-source-consumer-group"
+///         }
+///     }
+/// }
+/// ```
 #[derive(Serialize, Deserialize)]
 pub struct SourceConfig {
     pub source_id: String,
     pub source_type: String,
-    pub params: toml::Value,
+    pub params: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,13 +110,13 @@ pub struct IndexConfig {
     pub doc_mapping: DocMapping,
     pub indexing_settings: IndexingSettings,
     pub search_settings: SearchSettings,
-    pub sources: Vec<SourceConfig>,
+    #[serde(rename = "sources")]
+    pub source_configs: Vec<SourceConfig>,
 }
 
 impl IndexConfig {
-    // TODO: asyncify?
-    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let parser_fn = match path.as_ref().extension().and_then(OsStr::to_str) {
+    pub async fn from_file(path: &str) -> anyhow::Result<Self> {
+        let parser_fn = match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("json") => Self::from_json,
             Some("toml") => Self::from_toml,
             Some("yaml") | Some("yml") => Self::from_yaml,
@@ -97,8 +131,8 @@ impl IndexConfig {
                  formats and extensions are JSON (.json), TOML (.toml), and YAML (.yaml or .yml)."
             ),
         };
-        let file_content = std::fs::read_to_string(path)?;
-        parser_fn(file_content.as_bytes())
+        let file_content = load_file(path).await?;
+        parser_fn(file_content.as_slice())
     }
 
     pub fn from_json(bytes: &[u8]) -> anyhow::Result<Self> {
@@ -117,6 +151,9 @@ impl IndexConfig {
 
     // TODO
     pub fn validate(&self) -> anyhow::Result<()> {
+        if self.source_configs.len() > 1 {
+            bail!("Multi-sources indexes are not supported at the moment.")
+        }
         Ok(())
     }
 }
@@ -196,16 +233,16 @@ mod tests {
                         ],
                     }
                 );
-                assert_eq!(index_config.sources.len(), 2);
+                assert_eq!(index_config.source_configs.len(), 2);
                 {
-                    let source = &index_config.sources[0];
-                    assert_eq!(source.source_id, "hdfs-logs-kafka-source");
-                    assert_eq!(source.source_type, "kafka");
+                    let source_config = &index_config.source_configs[0];
+                    assert_eq!(source_config.source_id, "hdfs-logs-kafka-source");
+                    assert_eq!(source_config.source_type, "kafka");
                 }
                 {
-                    let source = &index_config.sources[1];
-                    assert_eq!(source.source_id, "hdfs-logs-kinesis-source");
-                    assert_eq!(source.source_type, "kinesis");
+                    let source = &index_config.source_configs[1];
+                    assert_eq!(source_config.source_id, "hdfs-logs-kinesis-source");
+                    assert_eq!(source_config.source_type, "kinesis");
                 }
                 Ok(())
             }

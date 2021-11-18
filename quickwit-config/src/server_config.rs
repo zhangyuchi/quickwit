@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 use byte_unit::Byte;
+use quickwit_storage::load_file;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -118,9 +119,8 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
-    // TODO: asyncify?
-    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let parser_fn = match path.as_ref().extension().and_then(OsStr::to_str) {
+    pub async fn from_file(path: &str) -> anyhow::Result<Self> {
+        let parser_fn = match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("json") => Self::from_json,
             Some("toml") => Self::from_toml,
             Some("yaml") | Some("yml") => Self::from_yaml,
@@ -135,8 +135,8 @@ impl ServerConfig {
                  formats and extensions are JSON (.json), TOML (.toml), and YAML (.yaml or .yml)."
             ),
         };
-        let file_content = std::fs::read_to_string(path)?;
-        parser_fn(file_content.as_bytes())
+        let file_content = load_file(path).await?;
+        parser_fn(file_content.as_slice())
     }
 
     pub fn from_json(bytes: &[u8]) -> anyhow::Result<Self> {

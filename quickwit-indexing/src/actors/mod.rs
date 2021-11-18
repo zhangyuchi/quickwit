@@ -21,6 +21,7 @@ mod pipeline_supervisor;
 
 mod garbage_collector;
 mod indexer;
+mod indexing_server;
 mod packager;
 mod publisher;
 mod uploader;
@@ -34,6 +35,7 @@ mod merge_split_downloader;
 
 pub use self::garbage_collector::{GarbageCollector, GarbageCollectorCounters};
 pub use self::indexer::{Indexer, IndexerCounters, IndexerParams};
+pub use self::indexing_server::IndexingServer;
 pub use self::merge_executor::MergeExecutor;
 pub use self::merge_planner::MergePlanner;
 pub use self::merge_split_downloader::MergeSplitDownloader;

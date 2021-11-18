@@ -50,6 +50,7 @@ use quickwit_storage::{quickwit_storage_uri_resolver, BundleStorage, Storage};
 use quickwit_telemetry::payload::TelemetryEvent;
 use tracing::debug;
 
+mod service_foo;
 pub mod stats;
 
 /// Throughput calculation window size.

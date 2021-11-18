@@ -45,6 +45,10 @@ mod retry;
 mod split;
 mod storage_resolver;
 
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+use anyhow::Context;
 pub use tantivy::directory::OwnedBytes;
 
 pub use self::bundle_storage::{BundleStorage, BundleStorageFileOffsets};
@@ -68,6 +72,40 @@ pub use self::storage_resolver::{
 pub use self::tests::storage_test_suite;
 pub use crate::cache::{wrap_storage_with_long_term_cache, Cache, MemorySizedCache, SliceCache};
 pub use crate::error::{StorageError, StorageErrorKind, StorageResolverError, StorageResult};
+
+async fn path_to_canonical_uri(path_or_uri: &str) -> anyhow::Result<PathBuf> {
+    let protocol = path_or_uri.split("://").next();
+    let idx = match protocol {
+        Some("file") => "file://".len(),
+        None => 0,
+        _ => return Ok(PathBuf::from(path_or_uri)),
+    };
+    let path = Path::new(&path_or_uri[idx..]);
+    let canonical_path = tokio::fs::canonicalize(path).await?;
+    let mut canonical_uri = OsString::new();
+    canonical_uri.push("file://");
+    canonical_uri.push(canonical_path.as_os_str());
+    Ok(PathBuf::from(canonical_uri))
+}
+
+/// Loads a local or remote file.
+pub async fn load_file(path: &str) -> anyhow::Result<OwnedBytes> {
+    let uri = path_to_canonical_uri(path).await?;
+    let parent_dir = uri
+        .parent()
+        .with_context(|| format!("`{}` is not a valid file path.", path))?
+        .as_os_str()
+        .to_str()
+        .ok_or(anyhow::anyhow!("Failed to convert OsStr to str."))?;
+    let storage = quickwit_storage_uri_resolver().resolve(parent_dir)?;
+    let file_name = uri
+        .file_name()
+        .with_context(|| format!("`{}` is not a valid file path.", path))?
+        .to_str()
+        .ok_or(anyhow::anyhow!("Failed to convert OsStr to str."))?;
+    let bytes = storage.get_all(&Path::new(file_name)).await?;
+    Ok(bytes)
+}
 
 #[cfg(any(test, feature = "testsuite"))]
 pub(crate) mod tests {

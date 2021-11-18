@@ -3,6 +3,19 @@ about: Index and search structured or unstructured data
 author: Quickwit, Inc. <hello@quickwit.io>
 
 subcommands:
+    - indexer:
+        about: Starts an indexer, i.e. an indexing server.
+        args:
+            - server-config-path:
+                help: Path to a server configuration file
+                long: server-config-path
+                value_name: PATH
+                required: true
+            - index-id:
+                help: Index ID
+                long: index-id
+                value_name: INDEX ID
+                required: true
     - stats:
         about: Statistics on splits and indexes.
         subcommands:

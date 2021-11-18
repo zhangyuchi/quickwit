@@ -21,11 +21,11 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use itertools::Itertools;
+use quickwit_config::SourceConfig;
 use quickwit_metastore::checkpoint::Checkpoint;
 use thiserror::Error;
 
 use super::Source;
-use crate::source::SourceConfig;
 
 #[async_trait]
 pub trait SourceFactory: 'static + Send + Sync {
