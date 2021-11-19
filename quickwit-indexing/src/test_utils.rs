@@ -19,9 +19,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
-use byte_unit::Byte;
 use quickwit_config::{IndexerConfig, IndexingSettings, SourceConfig};
 use quickwit_index_config::IndexConfig as DocMapping;
 use quickwit_metastore::checkpoint::Checkpoint;
@@ -32,7 +30,7 @@ use quickwit_metastore::{
 use quickwit_storage::{Storage, StorageResolverError, StorageUriResolver};
 
 use crate::index_data;
-use crate::models::{CommitPolicy, IndexingDirectory, IndexingStatistics};
+use crate::models::IndexingStatistics;
 use crate::source::VecSourceParams;
 
 /// Creates a Test environment.
@@ -98,10 +96,10 @@ impl TestSandbox {
             })?,
         };
         self.add_docs_id.fetch_add(1, Ordering::SeqCst);
-        let (_temp, indexer_config) = IndexerConfig::for_test();
+        let (indexer_config, _temp_dir) = IndexerConfig::for_test()?;
         let indexing_settings = IndexingSettings::for_test();
         let statistics = index_data(
-            self.index_id.clone(),
+            &self.index_id,
             indexer_config,
             indexing_settings,
             source_config,

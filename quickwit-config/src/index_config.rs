@@ -40,22 +40,45 @@ pub struct IndexingResources {
     pub heap_size: Byte,
 }
 
+impl IndexingResources {
+    // #[cfg(test)]
+    pub fn for_test() -> Self {
+        Self {
+            num_threads: 1,
+            heap_size: Byte::from_str("10M").unwrap(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MergePolicy {
-    pub demux_factor: usize,
-    pub merge_factor: usize,
-    pub max_merge_factor: usize,
-    pub min_level_num_docs: usize,
+    pub demux_factor: u64,
+    pub merge_factor: u64,
+    pub max_merge_factor: u64,
+    pub min_level_num_docs: u64,
+}
+
+impl MergePolicy {
+    // #[cfg(test)]
+    pub fn for_test() -> Self {
+        Self {
+            demux_factor: 2,
+            merge_factor: 2,
+            max_merge_factor: 4,
+            min_level_num_docs: 10_000,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IndexingSettings {
-    pub timestamp_field: String,
+    pub timestamp_field: Option<String>,
     pub commit_timeout_secs: u64,
     /// The maximum number of documents allowed in a split.
     pub split_max_num_docs: u64,
+    #[serde(default)]
     pub demux_enabled: bool,
-    pub demux_field: String,
+    pub demux_field: Option<String>,
     pub merge_enabled: bool,
     pub merge_policy: MergePolicy,
     pub resources: IndexingResources,
@@ -66,8 +89,19 @@ impl IndexingSettings {
         Duration::from_secs(self.commit_timeout_secs)
     }
 
-    #[cfg(test)]
-    pub fn for_test() -> Self {}
+    // #[cfg(test)]
+    pub fn for_test() -> Self {
+        Self {
+            timestamp_field: None,
+            commit_timeout_secs: 30,
+            split_max_num_docs: 1_000,
+            demux_enabled: false,
+            demux_field: None,
+            merge_enabled: true,
+            merge_policy: MergePolicy::for_test(),
+            resources: IndexingResources::for_test(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

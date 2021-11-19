@@ -21,7 +21,6 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use anyhow::Context;
-use byte_unit::Byte;
 use fail::fail_point;
 use quickwit_actors::{
     Actor, ActorContext, ActorExitStatus, Mailbox, QueueCapacity, SendError, SyncActor,
@@ -33,8 +32,7 @@ use tantivy::{Document, IndexBuilder, IndexSettings, IndexSortByField};
 use tracing::{info, warn};
 
 use crate::models::{
-    CommitPolicy, IndexedSplit, IndexedSplitBatch, IndexerMessage, IndexingDirectory, RawDocBatch,
-    ScratchDirectory,
+    IndexedSplit, IndexedSplitBatch, IndexerMessage, RawDocBatch, ScratchDirectory,
 };
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -112,7 +110,7 @@ impl IndexerState {
         let index_builder = IndexBuilder::new().settings(index_settings).schema(schema);
         let indexed_split = IndexedSplit::new_in_dir(
             self.index_id.clone(),
-            &self.scratch_directory,
+            self.scratch_directory.clone(),
             self.indexing_settings.resources.heap_size,
             index_builder,
             ctx.progress().clone(),
@@ -419,14 +417,13 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use byte_unit::Byte;
     use quickwit_actors::{create_test_mailbox, Universe};
+    use quickwit_config::IndexingSettings;
     use quickwit_metastore::checkpoint::CheckpointDelta;
 
     use super::Indexer;
     use crate::actors::indexer::{record_timestamp, IndexerCounters};
-    use crate::actors::IndexerParams;
-    use crate::models::{CommitPolicy, IndexingDirectory, RawDocBatch};
+    use crate::models::{RawDocBatch, ScratchDirectory};
 
     #[test]
     fn test_record_timestamp() {
@@ -443,20 +440,15 @@ mod tests {
     async fn test_indexer_simple() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
         let universe = Universe::new();
-        let indexer_params = IndexerParams {
-            commit_policy: CommitPolicy {
-                timeout: Duration::from_secs(60),
-                num_docs_threshold: 3,
-            },
-            heap_size: Byte::from_str("30MB").unwrap(),
-            indexing_directory: IndexingDirectory::for_test().await?,
-        };
         let (mailbox, inbox) = create_test_mailbox();
-        let index_config = Arc::new(quickwit_index_config::default_config_for_tests());
+        let doc_mapping = Arc::new(quickwit_index_config::default_config_for_tests());
+        let indexing_settings = IndexingSettings::for_test();
+        let scratch_directory = ScratchDirectory::for_test()?;
         let indexer = Indexer::try_new(
             "test-index".to_string(),
-            index_config,
-            indexer_params,
+            doc_mapping,
+            indexing_settings,
+            scratch_directory,
             mailbox,
         )?;
         let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();
@@ -527,20 +519,15 @@ mod tests {
     async fn test_indexer_timeout() -> anyhow::Result<()> {
         quickwit_common::setup_logging_for_tests();
         let universe = Universe::new();
-        let indexer_params = IndexerParams {
-            commit_policy: CommitPolicy {
-                timeout: Duration::from_secs(60),
-                num_docs_threshold: 10_000_000,
-            },
-            heap_size: Byte::from_str("30MB").unwrap(),
-            indexing_directory: IndexingDirectory::for_test().await?,
-        };
         let (mailbox, inbox) = create_test_mailbox();
-        let index_config = Arc::new(quickwit_index_config::default_config_for_tests());
+        let doc_mapping = Arc::new(quickwit_index_config::default_config_for_tests());
+        let indexing_settings = IndexingSettings::for_test();
+        let scratch_directory = ScratchDirectory::for_test()?;
         let indexer = Indexer::try_new(
             "test-index".to_string(),
-            index_config,
-            indexer_params,
+            doc_mapping,
+            indexing_settings,
+            scratch_directory,
             mailbox,
         )?;
         let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();
@@ -590,12 +577,14 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let universe = Universe::new();
         let (mailbox, inbox) = create_test_mailbox();
-        let index_config = Arc::new(quickwit_index_config::default_config_for_tests());
-        let indexer_params = IndexerParams::for_test().await?;
+        let doc_mapping = Arc::new(quickwit_index_config::default_config_for_tests());
+        let indexing_settings = IndexingSettings::for_test();
+        let scratch_directory = ScratchDirectory::for_test()?;
         let indexer = Indexer::try_new(
             "test-index".to_string(),
-            index_config,
-            indexer_params,
+            doc_mapping,
+            indexing_settings,
+            scratch_directory,
             mailbox,
         )?;
         let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();

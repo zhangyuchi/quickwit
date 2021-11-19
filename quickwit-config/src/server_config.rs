@@ -56,18 +56,16 @@ impl IndexerConfig {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub fn for_test() -> anyhow::Result<(Self,)> {
+    // #[cfg(test)]
+    pub fn for_test() -> anyhow::Result<(Self, tempfile::TempDir)> {
         use quickwit_common::net::find_available_port;
-        use tempfile;
 
-        let temp_dir = tempfile::temp_dir()?;
-
+        let temp_dir = tempfile::tempdir()?;
         let indexer_config = IndexerConfig {
             data_dir_path: temp_dir.path().to_path_buf(),
             rest_listen_port: find_available_port()?,
             grpc_listen_port: find_available_port()?,
-            split_store_max_num_bytes: Byte::from_str(s),
+            split_store_max_num_bytes: Byte::from_str("50M")?,
             split_store_max_num_files: 10,
         };
         Ok((indexer_config, temp_dir))

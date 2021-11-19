@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use quickwit_actors::Universe;
-use quickwit_config::{IndexConfig, IndexerConfig, IndexingSettings, ServerConfig, SourceConfig};
+use quickwit_config::{IndexerConfig, IndexingSettings, SourceConfig};
 use quickwit_metastore::Metastore;
 use quickwit_storage::StorageUriResolver;
 

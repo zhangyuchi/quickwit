@@ -36,7 +36,6 @@ pub use kafka_source::{KafkaSource, KafkaSourceFactory, KafkaSourceParams};
 use once_cell::sync::OnceCell;
 use quickwit_actors::{Actor, ActorContext, ActorExitStatus, AsyncActor, Mailbox};
 use quickwit_config::SourceConfig;
-use serde::{Deserialize, Serialize};
 pub use source_factory::{SourceFactory, SourceLoader, TypedSourceFactory};
 pub use vec_source::{VecSource, VecSourceFactory, VecSourceParams};
 

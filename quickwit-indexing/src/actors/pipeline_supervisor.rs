@@ -28,7 +28,7 @@ use quickwit_actors::{
 };
 use quickwit_config::{IndexingSettings, SourceConfig};
 use quickwit_metastore::{Metastore, SplitState};
-use quickwit_storage::{Storage, StorageUriResolver};
+use quickwit_storage::StorageUriResolver;
 use tokio::join;
 use tracing::{debug, error, info, info_span, instrument, Span};
 
@@ -358,6 +358,7 @@ impl IndexingPipelineSupervisor {
             self.params.index_id.clone(),
             index_metadata.index_config.clone(),
             self.params.indexing_settings.clone(),
+            self.params.indexing_directory.scratch_directory.clone(),
             packager_mailbox,
         )?;
         let (indexer_mailbox, indexer_handler) = ctx
@@ -482,13 +483,12 @@ mod tests {
     use std::sync::Arc;
 
     use quickwit_actors::Universe;
+    use quickwit_config::{IndexingSettings, SourceConfig};
     use quickwit_metastore::{IndexMetadata, MockMetastore, SplitState};
     use quickwit_storage::StorageUriResolver;
     use serde_json::json;
 
-    use super::{IndexingPipelineParams, IndexingPipelineSupervisor};
-    use crate::actors::IndexerParams;
-    use crate::source::SourceConfig;
+    use super::{IndexingDirectory, IndexingPipelineParams, IndexingPipelineSupervisor};
 
     #[tokio::test]
     async fn test_indexing_pipeline() -> anyhow::Result<()> {
