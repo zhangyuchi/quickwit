@@ -33,6 +33,7 @@ fn test_split_metadata_version(path: &Path) -> anyhow::Result<()> {
     let split_metadata = read_split_metadata(path)?;
     let expected_path = path.to_string_lossy().replace(".json", ".expected.json");
     let expected_split_metadata = read_split_metadata(Path::new(&expected_path))?;
+    assert_eq!(split_metadata, expected_split_metadata);
     Ok(())
 }
 
