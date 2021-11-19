@@ -267,24 +267,6 @@ fn record_timestamp(timestamp: i64, time_range: &mut Option<RangeInclusive<i64>>
     *time_range = Some(new_timestamp_range);
 }
 
-// #[derive(Clone)]
-// pub struct IndexerParams {
-//     pub indexing_directory: IndexingDirectory,
-//     pub heap_size: Byte,
-//     pub commit_policy: CommitPolicy,
-// }
-
-// impl IndexerParams {
-//     pub async fn for_test() -> anyhow::Result<Self> {
-//         let indexing_directory = IndexingDirectory::for_test().await?;
-//         Ok(IndexerParams {
-//             indexing_directory,
-//             heap_size: Byte::from_str("30MB").unwrap(),
-//             commit_policy: Default::default(),
-//         })
-//     }
-// }
-
 impl SyncActor for Indexer {
     fn process_message(
         &mut self,
