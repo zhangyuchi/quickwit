@@ -26,7 +26,7 @@ use quickwit_storage::load_file;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IndexerConfig {
     pub data_dir_path: PathBuf,
     pub rest_listen_port: u16,
@@ -55,10 +55,27 @@ impl IndexerConfig {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn for_test() -> anyhow::Result<(Self,)> {
+        use quickwit_common::net::find_available_port;
+        use tempfile;
+
+        let temp_dir = tempfile::temp_dir()?;
+
+        let indexer_config = IndexerConfig {
+            data_dir_path: temp_dir.path().to_path_buf(),
+            rest_listen_port: find_available_port()?,
+            grpc_listen_port: find_available_port()?,
+            split_store_max_num_bytes: Byte::from_str(s),
+            split_store_max_num_files: 10,
+        };
+        Ok((indexer_config, temp_dir))
+    }
 }
 
 // TODO: caching
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SearcherConfig {
     pub data_dir_path: PathBuf,
     pub rest_listen_port: u16,
@@ -95,19 +112,19 @@ impl SearcherConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct S3Config {
     pub region: Option<String>,
     pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct StorageConfig {
     #[serde(rename = "s3")]
     pub s3_config: S3Config,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServerConfig {
     pub metastore_uri: String,
     #[serde(rename = "indexer")]

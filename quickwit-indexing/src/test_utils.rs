@@ -22,7 +22,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use byte_unit::Byte;
-use quickwit_index_config::IndexConfig;
+use quickwit_config::{IndexerConfig, IndexingSettings, SourceConfig};
+use quickwit_index_config::IndexConfig as DocMapping;
 use quickwit_metastore::checkpoint::Checkpoint;
 use quickwit_metastore::{
     IndexMetadata, Metastore, MetastoreUriResolver, SplitMetadata, SplitMetadataAndFooterOffsets,
@@ -30,10 +31,9 @@ use quickwit_metastore::{
 };
 use quickwit_storage::{Storage, StorageResolverError, StorageUriResolver};
 
-use crate::actors::IndexerParams;
 use crate::index_data;
 use crate::models::{CommitPolicy, IndexingDirectory, IndexingStatistics};
-use crate::source::{SourceConfig, VecSourceParams};
+use crate::source::VecSourceParams;
 
 /// Creates a Test environment.
 ///
@@ -55,15 +55,12 @@ fn index_uri(index_id: &str) -> String {
 
 impl TestSandbox {
     /// Creates a new test environment.
-    pub async fn create(
-        index_id: &str,
-        index_config: Arc<dyn IndexConfig>,
-    ) -> anyhow::Result<Self> {
+    pub async fn create(index_id: &str, doc_mapping: Arc<dyn DocMapping>) -> anyhow::Result<Self> {
         let index_uri = index_uri(index_id);
         let index_metadata = IndexMetadata {
             index_id: index_id.to_string(),
             index_uri,
-            index_config,
+            index_config: doc_mapping,
             checkpoint: Checkpoint::default(),
         };
         let storage_uri_resolver = StorageUriResolver::for_test();
@@ -101,19 +98,14 @@ impl TestSandbox {
             })?,
         };
         self.add_docs_id.fetch_add(1, Ordering::SeqCst);
-        let indexer_params = IndexerParams {
-            indexing_directory: IndexingDirectory::for_test().await?,
-            heap_size: Byte::from_bytes(100_000_000),
-            commit_policy: CommitPolicy {
-                timeout: Duration::from_secs(3600),
-                num_docs_threshold: 5_000_000,
-            },
-        };
+        let (_temp, indexer_config) = IndexerConfig::for_test();
+        let indexing_settings = IndexingSettings::for_test();
         let statistics = index_data(
             self.index_id.clone(),
-            self.metastore.clone(),
-            indexer_params,
+            indexer_config,
+            indexing_settings,
             source_config,
+            self.metastore.clone(),
             self.storage_uri_resolver.clone(),
         )
         .await?;

@@ -34,7 +34,7 @@ mod merge_planner;
 mod merge_split_downloader;
 
 pub use self::garbage_collector::{GarbageCollector, GarbageCollectorCounters};
-pub use self::indexer::{Indexer, IndexerCounters, IndexerParams};
+pub use self::indexer::{Indexer, IndexerCounters};
 pub use self::indexing_server::IndexingServer;
 pub use self::merge_executor::MergeExecutor;
 pub use self::merge_planner::MergePlanner;

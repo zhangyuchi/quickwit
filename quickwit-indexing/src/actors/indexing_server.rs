@@ -58,13 +58,14 @@ impl IndexingServer {
         universe.spawn_actor(self).spawn_async()
     }
 
-    fn spawn_indexing_pipeline(
+    async fn spawn_indexing_pipeline(
         &mut self,
         ctx: &ActorContext<IndexingServerMessage>,
         index_id: &str,
     ) -> anyhow::Result<()> {
+        // TODO
         // let index_config = self.metastore.index_config(index_id).await?;
-        let index_config: IndexConfig;
+        let index_config = IndexConfig::default();
         index_config.validate();
 
         let indexing_directory_path = self.data_dir_path.join(index_id);
@@ -74,7 +75,7 @@ impl IndexingServer {
             index_id: index_id.to_string(),
             indexing_directory,
             indexing_settings: index_config.indexing_settings,
-            source_config: index_config.source_configs.pop().unwrap(),
+            source_config: index_config.source_configs[0].clone(),
             metastore: self.metastore.clone(),
             storage_uri_resolver: self.storage_uri_resolver.clone(),
         };
@@ -111,7 +112,7 @@ impl AsyncActor for IndexingServer {
     ) -> Result<(), ActorExitStatus> {
         match message {
             IndexingServerMessage::StartIndexingPipeline(index_id) => {
-                self.spawn_indexing_pipeline(ctx, &index_id)?
+                self.spawn_indexing_pipeline(ctx, &index_id).await?
             }
         }
         Ok(())

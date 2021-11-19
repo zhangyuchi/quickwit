@@ -2251,11 +2251,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "byte-unit",
+ "quickwit-common",
  "quickwit-index-config",
  "quickwit-storage",
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "toml",
  "tracing",
 ]

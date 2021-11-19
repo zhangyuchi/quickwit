@@ -21,4 +21,4 @@ mod index_config;
 mod server_config;
 
 pub use index_config::{IndexConfig, IndexingSettings, SourceConfig};
-pub use server_config::ServerConfig;
+pub use server_config::{IndexerConfig, SearcherConfig, ServerConfig};

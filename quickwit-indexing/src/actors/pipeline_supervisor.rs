@@ -34,8 +34,7 @@ use tracing::{debug, error, info, info_span, instrument, Span};
 
 use crate::actors::merge_split_downloader::MergeSplitDownloader;
 use crate::actors::{
-    GarbageCollector, Indexer, IndexerParams, MergeExecutor, MergePlanner, Packager, Publisher,
-    Uploader,
+    GarbageCollector, Indexer, MergeExecutor, MergePlanner, Packager, Publisher, Uploader,
 };
 use crate::models::{IndexingDirectory, IndexingStatistics};
 use crate::source::{quickwit_supported_sources, SourceActor};
@@ -206,24 +205,20 @@ impl IndexingPipelineSupervisor {
         let demux_field_name = index_metadata.index_config.demux_field_name();
         let stable_multitenant_merge_policy = StableMultitenantWithTimestampMergePolicy {
             demux_field_name: demux_field_name.clone(),
-            merge_enabled: self.params.merge_enabled,
-            demux_enabled: self.params.demux_enabled,
+            merge_enabled: self.params.indexing_settings.merge_enabled,
+            demux_enabled: self.params.indexing_settings.demux_enabled,
             ..Default::default()
         };
         let max_merge_docs = stable_multitenant_merge_policy.max_merge_docs;
         let merge_policy: Arc<dyn MergePolicy> = Arc::new(stable_multitenant_merge_policy);
         info!(
-            root_dir=%self.params.indexer_params.indexing_directory.path().display(),
+            root_dir=%self.params.indexing_directory.path().display(),
             merge_policy=?merge_policy,
             "spawn-indexing-pipeline",
         );
         let split_store = IndexingSplitStore::create_with_local_store(
             index_storage,
-            self.params
-                .indexer_params
-                .indexing_directory
-                .cache_directory
-                .as_path(),
+            self.params.indexing_directory.cache_directory.as_path(),
             IndexingSplitStoreParams::default(),
             merge_policy.clone(),
         )?;
@@ -302,12 +297,7 @@ impl IndexingPipelineSupervisor {
             .spawn_sync();
 
         let merge_split_downloader = MergeSplitDownloader {
-            scratch_directory: self
-                .params
-                .indexer_params
-                .indexing_directory
-                .scratch_directory
-                .clone(),
+            scratch_directory: self.params.indexing_directory.scratch_directory.clone(),
             storage: split_store.clone(),
             merge_executor_mailbox,
         };
@@ -367,7 +357,7 @@ impl IndexingPipelineSupervisor {
         let indexer = Indexer::try_new(
             self.params.index_id.clone(),
             index_metadata.index_config.clone(),
-            self.params.indexer_params.clone(),
+            self.params.indexing_settings.clone(),
             packager_mailbox,
         )?;
         let (indexer_mailbox, indexer_handler) = ctx

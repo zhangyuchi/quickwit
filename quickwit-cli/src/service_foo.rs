@@ -55,15 +55,13 @@ fn parse_start_indexer_args(matches: &ArgMatches) -> anyhow::Result<StartIndexer
 
 async fn start_indexer(args: &StartIndexerArgs) -> anyhow::Result<()> {
     let server_config = ServerConfig::from_file(&args.server_config_path).await?;
-    server_config.validate()?;
-
     let metastore = MetastoreUriResolver::default()
         .resolve(&server_config.metastore_uri)
         .await?;
     let indexer_config = server_config.indexer_config.ok_or(anyhow::anyhow!(""))?;
-    let indexing_directory = IndexingDirectory::create_in_dir(indexer_config.data_dir_path)?;
+    indexer_config.validate()?;
     let indexing_server = IndexingServer::new(
-        indexing_directory,
+        indexer_config.data_dir_path,
         metastore,
         quickwit_storage_uri_resolver(),
     );

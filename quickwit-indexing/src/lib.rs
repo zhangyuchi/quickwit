@@ -21,12 +21,12 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use quickwit_actors::Universe;
+use quickwit_config::{IndexConfig, IndexerConfig, IndexingSettings, ServerConfig, SourceConfig};
 use quickwit_metastore::Metastore;
 use quickwit_storage::StorageUriResolver;
 
-use crate::actors::{IndexerParams, IndexingPipelineParams, IndexingPipelineSupervisor};
-use crate::models::IndexingStatistics;
-use crate::source::SourceConfig;
+use crate::actors::{IndexingPipelineParams, IndexingPipelineSupervisor};
+use crate::models::{IndexingDirectory, IndexingStatistics};
 pub use crate::split_store::{
     get_tantivy_directory_from_split_bundle, IndexingSplitStore, IndexingSplitStoreParams,
     SplitFolder,
@@ -39,8 +39,10 @@ pub mod merge_policy;
 pub mod models;
 pub mod source;
 mod split_store;
+#[cfg(test)]
 mod test_utils;
 
+#[cfg(test)]
 pub use test_utils::{mock_split_meta, TestSandbox};
 
 pub use self::garbage_collection::{
@@ -49,23 +51,20 @@ pub use self::garbage_collection::{
 pub use self::merge_policy::{MergePolicy, StableMultitenantWithTimestampMergePolicy};
 
 pub async fn index_data(
-    index_id: String,
+    index_id: &str,
+    indexer_config: IndexerConfig,
+    indexing_settings: IndexingSettings,
+    source_config: SourceConfig,
     metastore: Arc<dyn Metastore>,
     storage_uri_resolver: StorageUriResolver,
 ) -> anyhow::Result<IndexingStatistics> {
-    let index_config: IndexConfig;
-    index_config.validate();
+    let indexing_directory_path = indexer_config.data_dir_path.join(index_id);
+    let indexing_directory = IndexingDirectory::create_in_dir(indexing_directory_path).await?;
     let indexing_pipeline_params = IndexingPipelineParams {
         index_id: index_id.to_string(),
-        indexing_directory: IndexingDirectory::create_in_dir().await?,
-        indexing_settings: index_config.indexing_settings,
-        source_config: index_config.source_configs.pop().unwrap(),
-        metastore: self.metastore.clone(),
-        storage_uri_resolver: self.storage_uri_resolver.clone(),
-    };
-    let indexing_pipeline_params = IndexingPipelineParams {
-        index_id,
-        indexing_directory: indexing_settings: source_config,
+        indexing_directory,
+        indexing_settings,
+        source_config,
         metastore,
         storage_uri_resolver,
     };

@@ -190,7 +190,7 @@ pub async fn check_source_connectivity(source_config: &SourceConfig) -> anyhow::
             None => bail!("Failed to parse source config params: property `filepath` is missing."),
         },
         #[cfg(feature = "kafka")]
-        "kafka" => kafka_source::check_connectivity(self.params.clone()),
+        "kafka" => kafka_source::check_connectivity(source_config.params.clone()),
         "vec" => Ok(()),
         unrecognized_source_type => {
             tracing::warn!(

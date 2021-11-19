@@ -27,20 +27,20 @@ use quickwit_index_config::FieldMappingEntry;
 use quickwit_storage::load_file;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocMapping {
     pub field_mappings: Vec<FieldMappingEntry>,
     pub tag_fields: Vec<String>,
     pub store_source: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IndexingResources {
     pub num_threads: usize,
     pub heap_size: Byte,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MergePolicy {
     pub demux_factor: usize,
     pub merge_factor: usize,
@@ -48,12 +48,12 @@ pub struct MergePolicy {
     pub min_level_num_docs: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IndexingSettings {
     pub timestamp_field: String,
-    pub commit_timeout_secs: usize,
+    pub commit_timeout_secs: u64,
     /// The maximum number of documents allowed in a split.
-    pub split_max_num_docs: usize,
+    pub split_max_num_docs: u64,
     pub demux_enabled: bool,
     pub demux_field: String,
     pub merge_enabled: bool,
@@ -63,14 +63,14 @@ pub struct IndexingSettings {
 
 impl IndexingSettings {
     pub fn commit_timeout(&self) -> Duration {
-        Duration::from_secs(self.commit_timeout_secs as u64)
+        Duration::from_secs(self.commit_timeout_secs)
     }
 
     #[cfg(test)]
     pub fn for_test() -> Self {}
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SearchSettings {
     pub default_search_fields: Vec<String>,
 }
@@ -96,14 +96,14 @@ pub struct SearchSettings {
 ///     }
 /// }
 /// ```
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourceConfig {
     pub source_id: String,
     pub source_type: String,
     pub params: serde_json::Value,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexConfig {
     pub index_id: String,
     pub index_uri: String,
@@ -155,6 +155,16 @@ impl IndexConfig {
             bail!("Multi-sources indexes are not supported at the moment.")
         }
         Ok(())
+    }
+}
+
+// TODO: remove
+impl Default for IndexConfig {
+    fn default() -> Self {
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("resources/tests/index_config/default.yaml");
+        Self::from_yaml(std::fs::read_to_string(path).unwrap().as_bytes()).unwrap()
     }
 }
 

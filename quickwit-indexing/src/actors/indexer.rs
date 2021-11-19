@@ -26,13 +26,15 @@ use fail::fail_point;
 use quickwit_actors::{
     Actor, ActorContext, ActorExitStatus, Mailbox, QueueCapacity, SendError, SyncActor,
 };
-use quickwit_index_config::{DocParsingError, IndexConfig, SortBy};
+use quickwit_config::IndexingSettings;
+use quickwit_index_config::{DocParsingError, IndexConfig as DocMapping, SortBy};
 use tantivy::schema::{Field, Value};
 use tantivy::{Document, IndexBuilder, IndexSettings, IndexSortByField};
 use tracing::{info, warn};
 
 use crate::models::{
     CommitPolicy, IndexedSplit, IndexedSplitBatch, IndexerMessage, IndexingDirectory, RawDocBatch,
+    ScratchDirectory,
 };
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -77,8 +79,9 @@ impl IndexerCounters {
 
 struct IndexerState {
     index_id: String,
-    index_config: Arc<dyn IndexConfig>,
-    indexer_params: IndexerParams,
+    doc_mapping: Arc<dyn DocMapping>,
+    indexing_settings: IndexingSettings,
+    scratch_directory: ScratchDirectory,
     timestamp_field_opt: Option<Field>,
 }
 
@@ -96,9 +99,9 @@ impl IndexerState {
         &self,
         ctx: &ActorContext<IndexerMessage>,
     ) -> anyhow::Result<IndexedSplit> {
-        let schema = self.index_config.schema();
+        let schema = self.doc_mapping.schema();
         let mut index_settings = IndexSettings::default();
-        let sort_by_field = match self.index_config.sort_by() {
+        let sort_by_field = match self.doc_mapping.sort_by() {
             SortBy::DocId => None,
             SortBy::SortByFastField { field_name, order } => Some(IndexSortByField {
                 field: field_name,
@@ -109,7 +112,8 @@ impl IndexerState {
         let index_builder = IndexBuilder::new().settings(index_settings).schema(schema);
         let indexed_split = IndexedSplit::new_in_dir(
             self.index_id.clone(),
-            &self.indexer_params,
+            &self.scratch_directory,
+            self.indexing_settings.resources.heap_size,
             index_builder,
             ctx.progress().clone(),
             ctx.kill_switch().clone(),
@@ -129,12 +133,12 @@ impl IndexerState {
     ) -> anyhow::Result<&'a mut IndexedSplit> {
         if current_split_opt.is_none() {
             let new_indexed_split = self.create_indexed_split(ctx)?;
-            let commit_timeout = IndexerMessage::CommitTimeout {
+            let commit_timeout_message = IndexerMessage::CommitTimeout {
                 split_id: new_indexed_split.split_id.clone(),
             };
             ctx.schedule_self_msg_blocking(
-                self.indexer_params.commit_policy.timeout,
-                commit_timeout,
+                self.indexing_settings.commit_timeout(),
+                commit_timeout_message,
             );
             *current_split_opt = Some(new_indexed_split);
         }
@@ -146,7 +150,7 @@ impl IndexerState {
 
     fn prepare_document(&self, doc_json: String) -> PrepareDocumentOutcome {
         // Parse the document
-        let doc_parsing_result = self.index_config.doc_from_json(doc_json);
+        let doc_parsing_result = self.doc_mapping.doc_from_json(doc_json);
         let document = match doc_parsing_result {
             Ok(doc) => doc,
             Err(doc_parsing_error) => {
@@ -265,23 +269,23 @@ fn record_timestamp(timestamp: i64, time_range: &mut Option<RangeInclusive<i64>>
     *time_range = Some(new_timestamp_range);
 }
 
-#[derive(Clone)]
-pub struct IndexerParams {
-    pub indexing_directory: IndexingDirectory,
-    pub heap_size: Byte,
-    pub commit_policy: CommitPolicy,
-}
+// #[derive(Clone)]
+// pub struct IndexerParams {
+//     pub indexing_directory: IndexingDirectory,
+//     pub heap_size: Byte,
+//     pub commit_policy: CommitPolicy,
+// }
 
-impl IndexerParams {
-    pub async fn for_test() -> anyhow::Result<Self> {
-        let indexing_directory = IndexingDirectory::for_test().await?;
-        Ok(IndexerParams {
-            indexing_directory,
-            heap_size: Byte::from_str("30MB").unwrap(),
-            commit_policy: Default::default(),
-        })
-    }
-}
+// impl IndexerParams {
+//     pub async fn for_test() -> anyhow::Result<Self> {
+//         let indexing_directory = IndexingDirectory::for_test().await?;
+//         Ok(IndexerParams {
+//             indexing_directory,
+//             heap_size: Byte::from_str("30MB").unwrap(),
+//             commit_policy: Default::default(),
+//         })
+//     }
+// }
 
 impl SyncActor for Indexer {
     fn process_message(
@@ -326,21 +330,21 @@ enum CommitTrigger {
 }
 
 impl Indexer {
-    // TODO take all of the parameter and dispatch them in index config, or in a different
-    // IndexerParams object.
     pub fn try_new(
         index_id: String,
-        index_config: Arc<dyn IndexConfig>,
-        indexer_params: IndexerParams,
+        doc_mapping: Arc<dyn DocMapping>,
+        indexing_settings: IndexingSettings,
+        scratch_directory: ScratchDirectory,
         packager_mailbox: Mailbox<IndexedSplitBatch>,
     ) -> anyhow::Result<Indexer> {
-        let schema = index_config.schema();
-        let timestamp_field_opt = index_config.timestamp_field(&schema);
+        let schema = doc_mapping.schema();
+        let timestamp_field_opt = doc_mapping.timestamp_field(&schema);
         Ok(Indexer {
             indexer_state: IndexerState {
                 index_id,
-                index_config,
-                indexer_params,
+                doc_mapping,
+                indexing_settings,
+                scratch_directory,
                 timestamp_field_opt,
             },
             packager_mailbox,
@@ -362,11 +366,7 @@ impl Indexer {
             ctx,
         )?;
         if self.counters.num_docs_in_split
-            >= self
-                .indexer_state
-                .indexer_params
-                .commit_policy
-                .num_docs_threshold
+            >= self.indexer_state.indexing_settings.split_max_num_docs
         {
             self.send_to_packager(CommitTrigger::NumDocsLimit, ctx)?;
         }
