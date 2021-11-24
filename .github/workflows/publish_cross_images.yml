@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix-build-715
     paths:
       - "build/cross-images/**"
 
