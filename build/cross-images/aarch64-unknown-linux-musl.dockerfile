@@ -37,7 +37,7 @@ RUN echo "Building libpq" && \
     cd /tmp && \
     curl -fLO "https://ftp.postgresql.org/pub/source/v$POSTGRESQL_VERSION/postgresql-$POSTGRESQL_VERSION.tar.gz" && \
     tar xzf "postgresql-$POSTGRESQL_VERSION.tar.gz" && cd "postgresql-$POSTGRESQL_VERSION" && \
-    AR=aarch64-linux-musl-ar CC=aarch64-linux-musl-gcc CPPFLAGS=-I/usr/local/aarch64-linux-musl/include LDFLAGS=-L/usr/local/aarch64-linux-musl/lib ./configure --with-openssl --without-readline --prefix=/usr/local/aarch64-linux-musl && \
+    AR=aarch64-linux-musl-ar CC=aarch64-linux-musl-gcc CPPFLAGS=-I/usr/local/aarch64-linux-musl/include LDFLAGS=-L/usr/local/aarch64-linux-musl/lib ./configure --host=aarch64-linux-musl --with-openssl --without-readline --prefix=/usr/local/aarch64-linux-musl && \
     cd src/interfaces/libpq && make all && make install && \
     cd ../../bin/pg_config && make && make install && \
     rm -r /tmp/*
