@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use byte_unit::Byte;
 use quickwit_config::{
@@ -153,10 +153,13 @@ fn sample_index_metadata_for_regression() -> IndexMetadata {
     };
     let sources = vec![kafka_source];
 
+    let mut source_checkpoints: BTreeMap<String, Checkpoint> = Default::default();
+    source_checkpoints.insert("kafka-source".to_string(), checkpoint);
+
     IndexMetadata {
         index_id: "my-index".to_string(),
         index_uri: "s3://quickwit-indexes/my-index".to_string(),
-        checkpoint,
+        source_checkpoints,
         doc_mapping,
         indexing_settings,
         search_settings,

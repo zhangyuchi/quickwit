@@ -114,11 +114,9 @@ impl SourceCliCommand {
 async fn describe_source_cli(args: DescribeSourceArgs) -> anyhow::Result<()> {
     let quickwit_config = load_quickwit_config(args.config_uri, args.data_dir).await?;
     let index_metadata = resolve_index(&quickwit_config.metastore_uri, &args.index_id).await?;
-    let (source_table, params_table, checkpoint_table) = make_describe_source_tables(
-        index_metadata.checkpoint,
-        index_metadata.sources,
-        &args.source_id,
-    )?;
+    let checkpoint = index_metadata.get_checkpoint(&args.source_id);
+    let (source_table, params_table, checkpoint_table) =
+        make_describe_source_tables(checkpoint, index_metadata.sources, &args.source_id)?;
     display_tables(&[source_table, params_table, checkpoint_table]);
     Ok(())
 }

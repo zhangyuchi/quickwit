@@ -104,6 +104,7 @@ pub trait Metastore: Send + Sync + 'static {
     async fn publish_splits<'a>(
         &self,
         index_id: &str,
+        source_id: &str,
         split_ids: &[&'a str],
         checkpoint_delta: CheckpointDelta,
     ) -> MetastoreResult<()>;

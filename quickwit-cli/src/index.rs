@@ -38,7 +38,6 @@ use quickwit_indexing::actors::{IndexingPipeline, IndexingPipelineParams};
 use quickwit_indexing::models::IndexingStatistics;
 use quickwit_indexing::source::FileSourceParams;
 use quickwit_indexing::{index_data, STD_IN_SOURCE_ID};
-use quickwit_metastore::checkpoint::Checkpoint;
 use quickwit_metastore::{quickwit_metastore_uri_resolver, IndexMetadata, Split, SplitState};
 use quickwit_proto::{SearchRequest, SearchResponse};
 use quickwit_search::{single_node_search, SearchResponseRest};
@@ -606,7 +605,7 @@ pub async fn create_index_cli(args: CreateIndexArgs) -> anyhow::Result<()> {
     let index_metadata = IndexMetadata {
         index_id: args.index_id.clone(),
         index_uri,
-        checkpoint: Checkpoint::default(),
+        source_checkpoints: Default::default(),
         doc_mapping: index_config.doc_mapping,
         indexing_settings: index_config.indexing_settings,
         search_settings: index_config.search_settings,

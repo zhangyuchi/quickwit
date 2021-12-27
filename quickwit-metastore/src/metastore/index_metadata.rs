@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -30,7 +31,7 @@ use quickwit_index_config::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::checkpoint::Checkpoint;
+use crate::checkpoint::{Checkpoint, CheckpointDelta, IncompatibleCheckpointDelta};
 use crate::split_metadata::utc_now_timestamp;
 
 /// An index metadata carries all meta data about an index.
@@ -43,7 +44,32 @@ pub struct IndexMetadata {
     pub index_uri: String,
     /// Checkpoint relative to a source or a set of sources. It expresses up to which point
     /// documents have been indexed.
-    pub checkpoint: Checkpoint,
+    pub source_checkpoints: BTreeMap<String, Checkpoint>, //< The key here is a source_id
+    /// Describes how ingested JSON documents are indexed.
+    pub doc_mapping: DocMapping,
+    /// Configures various indexing settings such as commit timeout, max split size, indexing
+    /// resources.
+    pub indexing_settings: IndexingSettings,
+    /// Configures various search settings such as default search fields.
+    pub search_settings: SearchSettings,
+    /// Data sources.
+    pub sources: Vec<SourceConfig>,
+    /// Time at which the index was created.
+    pub create_timestamp: i64,
+    /// Time at which the index was last updated.
+    pub update_timestamp: i64,
+}
+
+/// An index metadata carries all meta data about an index.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexMetadataV1 {
+    /// Index ID, uniquely identifies an index when querying the metastore.
+    pub index_id: String,
+    /// Index URI, defines the location of the storage that holds the split files.
+    pub index_uri: String,
+    /// Checkpoint relative to a source or a set of sources. It expresses up to which point
+    /// documents have been indexed.
+    pub source_checkpoints: BTreeMap<String, Checkpoint>, //< The key here is a source_id
     /// Describes how ingested JSON documents are indexed.
     pub doc_mapping: DocMapping,
     /// Configures various indexing settings such as commit timeout, max split size, indexing
@@ -139,7 +165,7 @@ impl IndexMetadata {
         Self {
             index_id: index_id.to_string(),
             index_uri: index_uri.to_string(),
-            checkpoint: Checkpoint::default(),
+            source_checkpoints: Default::default(),
             doc_mapping,
             indexing_settings,
             search_settings,
@@ -147,6 +173,26 @@ impl IndexMetadata {
             create_timestamp: now_timestamp,
             update_timestamp: now_timestamp,
         }
+    }
+
+    /// Returns the checkpoint associated with a source.
+    pub fn get_checkpoint(&self, source_id: &str) -> Checkpoint {
+        self.source_checkpoints
+            .get(source_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Apply a given checkpoint delta to a given source.
+    pub fn try_apply_delta(
+        &mut self,
+        source_id: &str,
+        delta: CheckpointDelta,
+    ) -> Result<(), IncompatibleCheckpointDelta> {
+        self.source_checkpoints
+            .entry(source_id.to_string())
+            .or_default()
+            .try_apply_delta(delta)
     }
 
     /// Returns the data source configured for the index.
@@ -189,15 +235,17 @@ pub(crate) struct UnversionedIndexMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub(crate) enum VersionedIndexMetadata {
+    #[serde(rename = "1")]
+    V1(IndexMetadataV1),
     #[serde(rename = "0")]
     V0(IndexMetadataV0),
     #[serde(rename = "unversioned")]
     Unversioned(UnversionedIndexMetadata),
 }
 
-impl From<IndexMetadata> for VersionedIndexMetadata {
-    fn from(index_metadata: IndexMetadata) -> Self {
-        VersionedIndexMetadata::V0(index_metadata.into())
+impl From<IndexMetadataV1> for VersionedIndexMetadata {
+    fn from(index_metadata: IndexMetadataV1) -> Self {
+        VersionedIndexMetadata::V1(index_metadata)
     }
 }
 
@@ -206,7 +254,46 @@ impl From<VersionedIndexMetadata> for IndexMetadata {
         match index_metadata {
             VersionedIndexMetadata::Unversioned(unversioned) => unversioned.into(),
             VersionedIndexMetadata::V0(v0) => v0.into(),
+            VersionedIndexMetadata::V1(v1) => v1.into(),
         }
+    }
+}
+
+impl From<IndexMetadata> for IndexMetadataV1 {
+    fn from(index_metadata: IndexMetadata) -> Self {
+        Self {
+            index_id: index_metadata.index_id,
+            index_uri: index_metadata.index_uri,
+            source_checkpoints: index_metadata.source_checkpoints,
+            doc_mapping: index_metadata.doc_mapping,
+            indexing_settings: index_metadata.indexing_settings,
+            search_settings: index_metadata.search_settings,
+            sources: index_metadata.sources,
+            create_timestamp: index_metadata.create_timestamp,
+            update_timestamp: index_metadata.update_timestamp,
+        }
+    }
+}
+
+impl From<IndexMetadataV1> for IndexMetadata {
+    fn from(index_metadata: IndexMetadataV1) -> Self {
+        Self {
+            index_id: index_metadata.index_id,
+            index_uri: index_metadata.index_uri,
+            source_checkpoints: index_metadata.source_checkpoints,
+            doc_mapping: index_metadata.doc_mapping,
+            indexing_settings: index_metadata.indexing_settings,
+            search_settings: index_metadata.search_settings,
+            sources: index_metadata.sources,
+            create_timestamp: index_metadata.create_timestamp,
+            update_timestamp: index_metadata.update_timestamp,
+        }
+    }
+}
+
+impl From<IndexMetadata> for VersionedIndexMetadata {
+    fn from(index_metadata: IndexMetadata) -> Self {
+        VersionedIndexMetadata::V1(index_metadata.into())
     }
 }
 
@@ -230,28 +317,26 @@ pub(crate) struct IndexMetadataV0 {
     pub update_timestamp: i64,
 }
 
-impl From<IndexMetadata> for IndexMetadataV0 {
-    fn from(index_metadata: IndexMetadata) -> Self {
-        Self {
-            index_id: index_metadata.index_id,
-            index_uri: index_metadata.index_uri,
-            checkpoint: index_metadata.checkpoint,
-            doc_mapping: index_metadata.doc_mapping,
-            indexing_settings: index_metadata.indexing_settings,
-            search_settings: index_metadata.search_settings,
-            sources: index_metadata.sources,
-            create_timestamp: index_metadata.create_timestamp,
-            update_timestamp: index_metadata.update_timestamp,
-        }
-    }
-}
-
 impl From<IndexMetadataV0> for IndexMetadata {
     fn from(v0: IndexMetadataV0) -> Self {
+        let source_ids: Vec<&str> = v0
+            .sources
+            .iter()
+            .map(|source_config| source_config.source_id.as_str())
+            .collect();
+        let mut source_checkpoints: BTreeMap<String, Checkpoint> = Default::default();
+        assert!(
+            source_ids.len() <= 1,
+            "Failed to convert the Index metadata. Multiple sources was not really supported. \
+             Contact Quickwit for help."
+        );
+        if let Some(source_id) = source_ids.first() {
+            source_checkpoints.insert(source_id.to_string(), v0.checkpoint);
+        }
         Self {
             index_id: v0.index_id,
             index_uri: v0.index_uri,
-            checkpoint: v0.checkpoint,
+            source_checkpoints,
             doc_mapping: v0.doc_mapping,
             indexing_settings: v0.indexing_settings,
             search_settings: v0.search_settings,
@@ -263,6 +348,12 @@ impl From<IndexMetadataV0> for IndexMetadata {
 }
 
 impl From<UnversionedIndexMetadata> for IndexMetadata {
+    fn from(unversioned: UnversionedIndexMetadata) -> Self {
+        IndexMetadata::from(IndexMetadataV0::from(unversioned))
+    }
+}
+
+impl From<UnversionedIndexMetadata> for IndexMetadataV0 {
     fn from(unversioned: UnversionedIndexMetadata) -> Self {
         let doc_mapping = DocMapping {
             field_mappings: unversioned

@@ -144,10 +144,22 @@ impl FileBackedIndex {
         &self.splits
     }
 
+    pub(crate) fn mutate(
+        &mut self,
+        mutation: impl FnOnce(&mut Self) -> crate::MetastoreResult<bool>,
+    ) -> crate::MetastoreResult<bool> {
+        let now_timestamp = Utc::now().timestamp();
+        let has_changed = mutation(self)?;
+        if has_changed {
+            self.metadata.update_timestamp = now_timestamp;
+        }
+        Ok(has_changed)
+    }
+
     pub(crate) fn stage_split(
         &mut self,
         split_metadata: SplitMetadata,
-    ) -> crate::MetastoreResult<()> {
+    ) -> crate::MetastoreResult<bool> {
         // Check whether the split exists.
         // If the split exists, return an error to prevent the split from being registered.
         if self.splits.contains_key(split_metadata.split_id()) {
@@ -170,24 +182,19 @@ impl FileBackedIndex {
         self.splits
             .insert(metadata.split_id().to_string(), metadata);
 
-        self.metadata.update_timestamp = now_timestamp;
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn replace_splits<'a>(
         &mut self,
         new_split_ids: &[&'a str],
         replaced_split_ids: &[&'a str],
-    ) -> MetastoreResult<()> {
+    ) -> MetastoreResult<bool> {
         // Try to publish the new splits.
-        // We do not want to update the delta, which is why we use an empty
-        // checkpoint delta.
-        self.publish_splits(new_split_ids, CheckpointDelta::default())?;
-
+        self.mark_splits_as_published_helper(new_split_ids)?;
         // Mark splits for deletion.
         self.mark_splits_for_deletion(replaced_split_ids)?;
-
-        Ok(())
+        Ok(true)
     }
 
     /// Returns true if modified
@@ -200,7 +207,7 @@ impl FileBackedIndex {
         let now_timestamp = Utc::now().timestamp();
         for &split_id in split_ids {
             // Check for the existence of split.
-            let metadata = match self.splits.get_mut(split_id) {
+            let split = match self.splits.get_mut(split_id) {
                 Some(metadata) => metadata,
                 None => {
                     split_not_found_ids.push(split_id.to_string());
@@ -208,13 +215,13 @@ impl FileBackedIndex {
                 }
             };
 
-            if metadata.split_state == SplitState::MarkedForDeletion {
+            if split.split_state == SplitState::MarkedForDeletion {
                 // If the split is already marked for deletion, This is fine, we just skip it.
                 continue;
             }
 
-            metadata.split_state = SplitState::MarkedForDeletion;
-            metadata.update_timestamp = now_timestamp;
+            split.split_state = SplitState::MarkedForDeletion;
+            split.update_timestamp = now_timestamp;
             is_modified = true;
         }
 
@@ -224,19 +231,15 @@ impl FileBackedIndex {
             });
         }
 
-        if is_modified {
-            self.metadata.update_timestamp = now_timestamp;
-        }
         Ok(is_modified)
     }
 
-    /// Helper to publish a list of splits.
-    pub(crate) fn publish_splits<'a>(
+    /// Helper to mark a list of splits as published.
+    /// This function however does not update the checkpoint.
+    fn mark_splits_as_published_helper<'a>(
         &mut self,
         split_ids: &[&'a str],
-        checkpoint_delta: CheckpointDelta,
     ) -> MetastoreResult<()> {
-        self.metadata.checkpoint.try_apply_delta(checkpoint_delta)?;
         let mut split_not_found_ids = vec![];
         let mut split_not_staged_ids = vec![];
         let now_timestamp = Utc::now().timestamp();
@@ -278,8 +281,18 @@ impl FileBackedIndex {
             });
         }
 
-        self.metadata.update_timestamp = now_timestamp;
         Ok(())
+    }
+
+    pub(crate) fn publish_splits<'a>(
+        &mut self,
+        source_id: &str,
+        split_ids: &[&'a str],
+        checkpoint_delta: CheckpointDelta,
+    ) -> MetastoreResult<bool> {
+        self.metadata.try_apply_delta(source_id, checkpoint_delta)?;
+        self.mark_splits_as_published_helper(split_ids)?;
+        Ok(true)
     }
 
     pub(crate) fn list_splits(

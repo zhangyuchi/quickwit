@@ -63,8 +63,8 @@ fn test_index_metadata_eq(index_metadata: &IndexMetadata, expected_index_metadat
     assert_eq!(index_metadata.index_id, expected_index_metadata.index_id);
     assert_eq!(index_metadata.index_uri, expected_index_metadata.index_uri);
     assert_eq!(
-        index_metadata.checkpoint,
-        expected_index_metadata.checkpoint
+        index_metadata.source_checkpoints,
+        expected_index_metadata.source_checkpoints
     );
     assert_eq!(
         index_metadata
