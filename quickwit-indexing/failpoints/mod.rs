@@ -46,12 +46,8 @@ use quickwit_common::split_file;
 use quickwit_indexing::actors::MergeExecutor;
 use quickwit_indexing::merge_policy::MergeOperation;
 use quickwit_indexing::models::{MergeScratch, ScratchDirectory};
-use quickwit_indexing::{
-    get_tantivy_directory_from_split_bundle, new_split_id, TestSandbox,
-};
-use quickwit_metastore::{
-    SplitMetadata, SplitState,
-};
+use quickwit_indexing::{get_tantivy_directory_from_split_bundle, new_split_id, TestSandbox};
+use quickwit_metastore::{SplitMetadata, SplitState};
 use tantivy::Directory;
 
 #[tokio::test]
