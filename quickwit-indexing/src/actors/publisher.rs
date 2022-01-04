@@ -95,6 +95,7 @@ impl Publisher {
                 ..
             } => {
                 info!("new-split-start");
+                println!("publish splits {:?}", publisher_message);
                 self.metastore
                     .publish_splits(
                         &publisher_message.index_id,

@@ -36,27 +36,22 @@
 //! Below we test panics at different steps in the indexing pipeline.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use byte_unit::Byte;
 use fail::FailScenario;
 use quickwit_actors::{create_test_mailbox, ActorExitStatus, Universe};
+use quickwit_common::rand::append_random_suffix;
 use quickwit_common::split_file;
-use quickwit_doc_mapper::{default_config_for_tests, DefaultIndexConfigBuilder};
-use quickwit_indexing::actors::{IndexerParams, MergeExecutor};
+use quickwit_indexing::actors::MergeExecutor;
 use quickwit_indexing::merge_policy::MergeOperation;
-use quickwit_indexing::models::{CommitPolicy, IndexingDirectory, MergeScratch, ScratchDirectory};
-use quickwit_indexing::source::SourceConfig;
+use quickwit_indexing::models::{MergeScratch, ScratchDirectory};
 use quickwit_indexing::{
-    get_tantivy_directory_from_split_bundle, index_data, new_split_id, TestSandbox,
+    get_tantivy_directory_from_split_bundle, new_split_id, TestSandbox,
 };
-use quickwit_metastore::checkpoint::SourceCheckpoint;
 use quickwit_metastore::{
-    FileBackedMetastore, IndexMetadata, Metastore, SplitMetadata, SplitState,
+    SplitMetadata, SplitState,
 };
-use quickwit_storage::quickwit_storage_uri_resolver;
-use serde_json::json;
 use tantivy::Directory;
 
 #[tokio::test]
@@ -164,48 +159,39 @@ async fn test_failpoint_uploader_after_panics_right_away() -> anyhow::Result<()>
 
 async fn aux_test_failpoints() -> anyhow::Result<()> {
     quickwit_common::setup_logging_for_tests();
-    let metastore = Arc::new(FileBackedMetastore::for_test());
-    let index_config = default_config_for_tests();
-    metastore
-        .create_index(IndexMetadata {
-            index_id: "test-index".to_string(),
-            index_uri: "ram://test-index/".to_string(),
-            index_config: Arc::new(index_config),
-            checkpoint: SourceCheckpoint::default(),
-        })
-        .await?;
-    let params = IndexerParams {
-        indexing_directory: IndexingDirectory::for_test().await?,
-        heap_size: Byte::from_bytes(30_000_000),
-        commit_policy: CommitPolicy {
-            timeout: Duration::from_secs(3),
-            num_docs_threshold: 2,
-        },
-    };
-    let source_config = SourceConfig {
-        source_id: "test-source".to_string(),
-        source_type: "vec".to_string(),
-        params: json!({
-            "items": [
-                r#"{"timestamp": 1629889530, "body": "1"}"#,
-                r#"{"timestamp": 1629889531, "body": "2"}"#,
-                r#"{"timestamp": 1629889532, "body": "3"}"#,
-                r#"{"timestamp": 1629889533, "body": "4"}"#
-            ],
-            "batch_num_docs": 1
-        }),
-    };
-    let storage_uri_resolver = quickwit_storage_uri_resolver().clone();
-    index_data(
-        "test-index".to_string(),
-        metastore.clone(),
-        params,
-        source_config,
-        storage_uri_resolver,
+    let doc_mapper_yaml = r#"
+        field_mappings:
+          - name: body
+            type: text
+          - name: ts
+            type: i64
+            fast: true
+        "#;
+    let indexing_setting_yaml = r#"
+        timestamp_field: ts
+    "#;
+    let search_fields = ["body"];
+    let index_id = append_random_suffix("test-index");
+    let test_index_builder = TestSandbox::create(
+        &index_id,
+        doc_mapper_yaml,
+        indexing_setting_yaml,
+        &search_fields,
     )
     .await?;
-    let mut splits = metastore
-        .list_splits("test-index", SplitState::Published, None, &[])
+    let batch_1: Vec<serde_json::Value> = vec![
+        serde_json::json!({"body ": "1", "ts": 1629889530 }),
+        serde_json::json!({"body ": "2", "ts": 1629889531 }),
+    ];
+    let batch_2: Vec<serde_json::Value> = vec![
+        serde_json::json!({"body ": "3", "ts": 1629889532 }),
+        serde_json::json!({"body ": "4", "ts": 1629889533 }),
+    ];
+    test_index_builder.add_documents(batch_1).await?;
+    test_index_builder.add_documents(batch_2).await?;
+    let mut splits = test_index_builder
+        .metastore()
+        .list_splits(&index_id, SplitState::Published, None, None)
         .await?;
     splits.sort_by_key(|split| *split.split_metadata.time_range.clone().unwrap().start());
     assert_eq!(splits.len(), 2);
@@ -235,20 +221,26 @@ async fn test_merge_executor_controlled_directory_kill_switch() -> anyhow::Resul
     // a merge, then the controlled directory makes it possible to
     // abort the merging operation and return quickly.
     quickwit_common::setup_logging_for_tests();
-    let index_config = r#"{
-            "default_search_fields": ["body"],
-            "timestamp_field": "ts",
-            "tag_fields": [],
-            "field_mappings": [
-                { "name": "body", "type": "text" },
-                { "name": "ts", "type": "i64", "fast": true }
-            ]
-        }"#;
-
-    let index_config =
-        Arc::new(serde_json::from_str::<DefaultIndexConfigBuilder>(index_config)?.build()?);
+    let doc_mapper_yaml = r#"
+        field_mappings:
+          - name: body
+            type: text
+          - name: ts
+            type: i64
+            fast: true
+        "#;
+    let indexing_setting_yaml = r#"
+        timestamp_field: ts
+    "#;
+    let search_fields = ["body"];
     let index_id = "test-index";
-    let test_index_builder = TestSandbox::create(index_id, index_config).await?;
+    let test_index_builder = TestSandbox::create(
+        index_id,
+        doc_mapper_yaml,
+        indexing_setting_yaml,
+        &search_fields,
+    )
+    .await?;
 
     let batch: Vec<serde_json::Value> =
         std::iter::repeat_with(|| serde_json::json!({"body ": TEST_TEXT, "ts": 1631072713 }))
@@ -268,7 +260,7 @@ async fn test_merge_executor_controlled_directory_kill_switch() -> anyhow::Resul
 
     let downloaded_splits_directory =
         merge_scratch_directory.named_temp_child("downloaded-splits-")?;
-    let storage = test_index_builder.storage(index_id)?;
+    let storage = test_index_builder.storage();
     let mut tantivy_dirs: Vec<Box<dyn Directory>> = vec![];
     for split in &splits {
         let split_filename = split_file(split.split_id());

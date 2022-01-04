@@ -32,6 +32,10 @@ use quickwit_doc_mapper::{
 };
 use serde::{Deserialize, Serialize};
 
+// Note(fmassot): `DocMapping` is a struct that is here for
+// serizalization/deserialization of `DocMapper` parameters.
+// This clearly needs to be cleaned and is a temporary hack
+// for the 0.2 release. Let's refactor after the release.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocMapping {
     pub field_mappings: Vec<FieldMappingEntry>,

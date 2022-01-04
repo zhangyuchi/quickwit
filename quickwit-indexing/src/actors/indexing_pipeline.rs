@@ -30,7 +30,6 @@ use quickwit_actors::{
 };
 use quickwit_config::{build_doc_mapper, IndexingSettings, SourceConfig};
 use quickwit_doc_mapper::DocMapper;
-use quickwit_metastore::checkpoint::SourceCheckpoint;
 use quickwit_metastore::{IndexMetadata, Metastore, SplitState};
 use quickwit_storage::Storage;
 use tokio::join;
@@ -203,6 +202,11 @@ impl IndexingPipeline {
     async fn spawn_pipeline(&mut self, ctx: &ActorContext<Self>) -> anyhow::Result<()> {
         self.statistics.num_spawn_attempts += 1;
         self.kill_switch = KillSwitch::default();
+        let index_metadata = self
+            .params
+            .metastore
+            .index_metadata(&self.params.index_id)
+            .await?;
         let stable_multitenant_merge_policy = StableMultitenantWithTimestampMergePolicy {
             demux_enabled: self.params.indexing_settings.demux_enabled,
             demux_factor: self.params.indexing_settings.merge_policy.demux_factor,
@@ -283,10 +287,13 @@ impl IndexingPipeline {
             .spawn_async();
 
         // Merge Packager
-        let index_schema = self.params.doc_mapper.schema();
-        let tag_fields = self
-            .params
-            .doc_mapper
+        let doc_mapper = build_doc_mapper(
+            &index_metadata.doc_mapping,
+            &index_metadata.search_settings,
+            &index_metadata.indexing_settings,
+        )?;
+        let index_schema = doc_mapper.schema();
+        let tag_fields = doc_mapper
             .tag_field_names()
             .iter()
             .map(|field_name| {
@@ -310,10 +317,10 @@ impl IndexingPipeline {
         let merge_executor = MergeExecutor::new(
             self.params.index_id.clone(),
             merge_packager_mailbox,
-            self.params.indexing_settings.timestamp_field.clone(),
-            self.params.indexing_settings.demux_field.clone(),
-            self.params.indexing_settings.split_num_docs_target as usize,
-            self.params.indexing_settings.split_num_docs_target as usize * 2,
+            index_metadata.indexing_settings.timestamp_field.clone(),
+            index_metadata.indexing_settings.demux_field.clone(),
+            index_metadata.indexing_settings.split_num_docs_target as usize,
+            index_metadata.indexing_settings.split_num_docs_target as usize * 2,
         );
         let (merge_executor_mailbox, merge_executor_handler) = ctx
             .spawn_actor(merge_executor)
@@ -378,9 +385,9 @@ impl IndexingPipeline {
         // Indexer
         let indexer = Indexer::new(
             self.params.index_id.clone(),
-            self.params.doc_mapper.clone(),
+            doc_mapper.clone(),
             self.params.indexing_directory.clone(),
-            self.params.indexing_settings.clone(),
+            index_metadata.indexing_settings.clone(),
             packager_mailbox,
         );
         let (indexer_mailbox, indexer_handler) = ctx
@@ -389,8 +396,13 @@ impl IndexingPipeline {
             .spawn_sync();
 
         // Source
+        let source_checkpoint = index_metadata
+            .checkpoint
+            .source_checkpoint(&self.params.source.source_id)
+            .cloned()
+            .unwrap_or_default(); // TODO Have a stricter check.
         let source = quickwit_supported_sources()
-            .load_source(self.params.source.clone(), self.params.checkpoint.clone())
+            .load_source(self.params.source.clone(), source_checkpoint)
             .await?;
         let actor_source = SourceActor {
             source,
@@ -532,7 +544,6 @@ impl AsyncActor for IndexingPipeline {
 
 pub struct IndexingPipelineParams {
     pub index_id: String,
-    pub checkpoint: SourceCheckpoint,
     pub doc_mapper: Arc<dyn DocMapper>,
     pub indexing_directory: IndexingDirectory,
     pub indexing_settings: IndexingSettings,
@@ -562,14 +573,8 @@ impl IndexingPipelineParams {
             .join(&index_metadata.index_id)
             .join(&source.source_id);
         let indexing_directory = IndexingDirectory::create_in_dir(indexing_directory_path).await?;
-        let source_checkpoint = index_metadata
-            .checkpoint
-            .source_checkpoint(&source.source_id)
-            .cloned()
-            .unwrap_or_default(); // TODO Have a stricter check.
         Ok(Self {
             index_id: index_metadata.index_id,
-            checkpoint: source_checkpoint,
             doc_mapper,
             indexing_directory,
             indexing_settings: index_metadata.indexing_settings,
@@ -588,10 +593,8 @@ mod tests {
     use std::sync::Arc;
 
     use quickwit_actors::Universe;
-    use quickwit_config::IndexingSettings;
     use quickwit_doc_mapper::default_doc_mapper_for_tests;
-    use quickwit_metastore::checkpoint::SourceCheckpoint;
-    use quickwit_metastore::{MetastoreError, MockMetastore};
+    use quickwit_metastore::{IndexMetadata, MetastoreError, MockMetastore};
     use quickwit_storage::RamStorage;
     use serde_json::json;
 
@@ -632,15 +635,23 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let index_id = "test-index";
         let mut metastore = MockMetastore::default();
-        metastore.expect_list_splits().returning(move |_, _, _, _| {
-            if num_fails == 0 {
-                return Ok(Vec::new());
-            }
-            num_fails -= 1;
-            Err(MetastoreError::ConnectionError {
-                message: "MetastoreError Alarm".to_string(),
-            })
-        });
+        metastore
+            .expect_index_metadata()
+            .withf(|index_id| index_id == "test-index")
+            .returning(move |_| {
+                if num_fails == 0 {
+                    let index_metadata =
+                        IndexMetadata::for_test("test-index", "ram://indexes/my-index");
+                    return Ok(index_metadata);
+                }
+                num_fails -= 1;
+                Err(MetastoreError::ConnectionError {
+                    message: "MetastoreError Alarm".to_string(),
+                })
+            });
+        metastore
+            .expect_list_splits()
+            .returning(|_, _, _, _| Ok(Vec::new()));
         metastore
             .expect_mark_splits_for_deletion()
             .returning(|_, _| Ok(()));
@@ -670,7 +681,6 @@ mod tests {
         };
         let indexing_pipeline_params = IndexingPipelineParams {
             index_id: index_id.to_string(),
-            checkpoint: SourceCheckpoint::default(),
             doc_mapper: Arc::new(default_doc_mapper_for_tests()),
             indexing_directory: IndexingDirectory::for_test().await?,
             indexing_settings: IndexingSettings::for_test(),
@@ -711,6 +721,15 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let mut metastore = MockMetastore::default();
         metastore
+            .expect_index_metadata()
+            .withf(|index_id| index_id == "test-index")
+            .returning(move |_| {
+                Ok(IndexMetadata::for_test(
+                    "test-index",
+                    "ram://indexes/my-index",
+                ))
+            });
+        metastore
             .expect_list_splits()
             .times(3)
             .returning(|_, _, _, _| Ok(Vec::new()));
@@ -744,7 +763,6 @@ mod tests {
         };
         let pipeline_params = IndexingPipelineParams {
             index_id: "test-index".to_string(),
-            checkpoint: SourceCheckpoint::default(),
             doc_mapper: Arc::new(default_doc_mapper_for_tests()),
             indexing_directory: IndexingDirectory::for_test().await?,
             indexing_settings: IndexingSettings::for_test(),
