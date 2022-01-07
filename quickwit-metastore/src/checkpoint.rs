@@ -99,7 +99,7 @@ impl Position {
 impl From<i32> for Position {
     fn from(offset: i32) -> Self {
         assert!(offset >= 0);
-        let offset_str = format!("{:0>10}", offset);
+        let offset_str = format!("{:0>20}", offset);
         Position::Offset(Arc::new(offset_str))
     }
 }

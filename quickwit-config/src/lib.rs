@@ -30,6 +30,6 @@ pub use index_config::{
     SearchSettings,
 };
 pub use source_config::{
-    FileSourceParams, KafkaSourceParams, SourceConfig, SourceParams, VecSourceParams,
-    VoidSourceParams,
+    FileSourceParams, IngestSourceParams, KafkaSourceParams, SourceConfig, SourceParams,
+    VecSourceParams, VoidSourceParams,
 };

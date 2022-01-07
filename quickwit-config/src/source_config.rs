@@ -57,13 +57,14 @@ impl SourceConfig {
                 // TODO consider any validation opportunity
                 Ok(())
             }
-            SourceParams::Vec(_) | SourceParams::Void(_) => Ok(()),
+            SourceParams::Ingest(_) | SourceParams::Vec(_) | SourceParams::Void(_) => Ok(()),
         }
     }
 
     pub fn source_type(&self) -> &str {
         match self.source_params {
             SourceParams::File(_) => "file",
+            SourceParams::Ingest(_) => "ingest",
             SourceParams::Kafka(_) => "kafka",
             SourceParams::Kinesis(_) => "kinesis",
             SourceParams::Vec(_) => "vec",
@@ -75,6 +76,7 @@ impl SourceConfig {
     pub fn params(&self) -> serde_json::Value {
         match &self.source_params {
             SourceParams::File(params) => serde_json::to_value(params),
+            SourceParams::Ingest(params) => serde_json::to_value(params),
             SourceParams::Kafka(params) => serde_json::to_value(params),
             SourceParams::Kinesis(params) => serde_json::to_value(params),
             SourceParams::Vec(params) => serde_json::to_value(params),
@@ -89,6 +91,9 @@ impl SourceConfig {
 pub enum SourceParams {
     #[serde(rename = "file")]
     File(FileSourceParams),
+    #[doc(hidden)]
+    #[serde(rename = "ingest")]
+    Ingest(IngestSourceParams),
     #[serde(rename = "kafka")]
     Kafka(KafkaSourceParams),
     #[doc(hidden)]
@@ -111,6 +116,13 @@ impl SourceParams {
 
     pub fn void() -> Self {
         Self::Void(VoidSourceParams)
+    }
+
+    #[doc(hidden)]
+    pub fn ingest<P: AsRef<Path>>(log_dir_path: P) -> Self {
+        Self::Ingest(IngestSourceParams {
+            log_dir_path: log_dir_path.as_ref().to_path_buf(),
+        })
     }
 }
 
@@ -146,6 +158,14 @@ impl FileSourceParams {
     pub fn stdin() -> Self {
         FileSourceParams { filepath: None }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[doc(hidden)]
+#[serde(deny_unknown_fields)]
+pub struct IngestSourceParams {
+    /// Path tho WAL directory.
+    pub log_dir_path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

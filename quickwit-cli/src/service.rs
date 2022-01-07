@@ -23,6 +23,7 @@ use anyhow::bail;
 use clap::ArgMatches;
 use quickwit_common::run_checklist;
 use quickwit_common::uri::Uri;
+use quickwit_config::{SourceConfig, SourceParams};
 use quickwit_indexing::actors::IndexingServer;
 use quickwit_metastore::quickwit_metastore_uri_resolver;
 use quickwit_serve::run_searcher;
@@ -125,13 +126,24 @@ async fn run_indexer_cli(args: RunIndexerArgs) -> anyhow::Result<()> {
         .await?;
     let storage_resolver = quickwit_storage_uri_resolver().clone();
     let client = IndexingServer::spawn(
-        config.data_dir_path,
+        config.data_dir_path.clone(),
         config.indexer_config,
         metastore,
         storage_resolver,
     );
     for index_id in args.index_ids {
-        client.spawn_pipelines(index_id).await?;
+        client.spawn_pipelines(index_id.clone()).await?;
+
+        let log_dir_path = config
+            .data_dir_path
+            .join("indexing")
+            .join(&index_id)
+            .join(".wal-source");
+        let source = SourceConfig {
+            source_id: ".wal-source".to_string(),
+            source_params: SourceParams::ingest(log_dir_path),
+        };
+        client.spawn_pipeline(index_id, source).await?;
     }
     let (exit_status, _) = client.join_server().await;
     if exit_status.is_success() {

@@ -103,9 +103,9 @@ pub struct KafkaSourceState {
     pub num_active_partitions: usize,
     /// Number of bytes processed by the source.
     pub num_bytes_processed: u64,
-    /// Number of messages processed by the source (including invalid messages).
+    /// Number of messages processed by the source, including invalid messages.
     pub num_messages_processed: u64,
-    // Number of invalid messages, i.e., that were empty or could not be parsed.
+    /// Number of invalid messages, i.e., that were empty or contained invalid UTF-8 characters.
     pub num_invalid_messages: u64,
 }
 
@@ -127,7 +127,7 @@ impl KafkaSource {
     pub async fn try_new(
         params: KafkaSourceParams,
         checkpoint: SourceCheckpoint,
-    ) -> anyhow::Result<KafkaSource> {
+    ) -> anyhow::Result<Self> {
         let topic = params.topic;
         let consumer = create_consumer(params.client_log_level, params.client_params)?;
         let partition_ids = fetch_partition_ids(consumer.clone(), &topic).await?;
@@ -161,7 +161,7 @@ impl KafkaSource {
             num_active_partitions: partition_ids.len(),
             ..Default::default()
         };
-        Ok(KafkaSource {
+        Ok(Self {
             topic,
             consumer,
             state,
@@ -203,10 +203,10 @@ impl Source for KafkaSource {
             };
             if let Some(doc) = parse_message_payload(&message) {
                 docs.push(doc);
+                batch_num_bytes += message.payload_len() as u64;
             } else {
                 self.state.num_invalid_messages += 1;
             }
-            batch_num_bytes += message.payload_len() as u64;
             self.state.num_bytes_processed += message.payload_len() as u64;
             self.state.num_messages_processed += 1;
 
@@ -527,8 +527,8 @@ fn compute_next_offset(
     );
 }
 
-/// Converts the raw bytes of the message payload to a `String` skipping corrupted or empty
-/// messages.
+/// Converts the raw bytes of the message payload to a `String` skipping empty
+/// or invalid UTF-8 messages.
 fn parse_message_payload(message: &BorrowedMessage) -> Option<String> {
     match message.payload_view::<str>() {
         Some(Ok(payload)) if payload.len() > 0 => {
@@ -548,7 +548,7 @@ fn parse_message_payload(message: &BorrowedMessage) -> Option<String> {
             partition = ?message.partition(),
             offset = ?message.offset(),
             timestamp = ?message.timestamp(),
-            "Document is empty."
+            "Message is empty."
         ),
         Some(Err(error)) => warn!(
             topic = ?message.topic(),
@@ -556,7 +556,7 @@ fn parse_message_payload(message: &BorrowedMessage) -> Option<String> {
             offset = ?message.offset(),
             timestamp = ?message.timestamp(),
             error = ?error,
-            "Failed to deserialize message payload."
+            "Message contains invalid UTF-8 characters."
         ),
         None => debug!(
             topic = ?message.topic(),

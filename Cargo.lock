@@ -2379,6 +2379,7 @@ dependencies = [
  "quickwit-doc-mapper",
  "quickwit-metastore",
  "quickwit-storage",
+ "quickwit-wal",
  "rand",
  "rdkafka",
  "rusoto_core",
@@ -2581,6 +2582,16 @@ dependencies = [
  "tracing",
  "username",
  "uuid 0.8.2",
+]
+
+[[package]]
+name = "quickwit-wal"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "crc32fast",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

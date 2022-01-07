@@ -25,6 +25,7 @@ mod kinesis;
 mod source_factory;
 mod vec_source;
 mod void_source;
+mod wal_source;
 
 use std::fmt;
 use std::path::Path;
@@ -42,6 +43,7 @@ pub use vec_source::{VecSource, VecSourceFactory};
 pub use void_source::{VoidSource, VoidSourceFactory};
 
 use crate::models::IndexerMessage;
+use crate::source::wal_source::WalSourceFactory;
 
 /// Reserved source id used for the CLI ingest command.
 pub const INGEST_SOURCE_ID: &str = ".cli-ingest-source";
@@ -172,6 +174,7 @@ pub fn quickwit_supported_sources() -> &'static SourceLoader {
         source_factory.add_source("kafka", KafkaSourceFactory);
         source_factory.add_source("vec", VecSourceFactory);
         source_factory.add_source("void", VoidSourceFactory);
+        source_factory.add_source("ingest", WalSourceFactory);
         source_factory
     })
 }

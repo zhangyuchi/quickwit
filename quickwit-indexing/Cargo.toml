@@ -26,6 +26,7 @@ quickwit-directories = {path = "../quickwit-directories"}
 quickwit-doc-mapper = {path = "../quickwit-doc-mapper", features=["testsuite"]}
 quickwit-metastore = {path = "../quickwit-metastore" }
 quickwit-storage = { version = "0.2.0", path = "../quickwit-storage" }
+quickwit-wal = { version = "0.2.0", path = "../quickwit-wal" }
 rdkafka = { version = "0.28", default-features = false, features = ["tokio", "libz", "ssl", "cmake-build"], optional = true }
 openssl = { version = "0.10.36", default-features = false, optional = true}
 libz-sys = {version = "1.1.3", optional = true}
