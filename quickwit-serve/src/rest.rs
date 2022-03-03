@@ -30,7 +30,7 @@ use crate::cluster_api::cluster_handler;
 use crate::error::ServiceErrorCode;
 use crate::format::FormatError;
 use crate::health_check_api::liveness_check_handler;
-use crate::push_api::push_api_handler;
+use crate::push_api::{ingest_handler, tail_handler};
 use crate::search_api::{search_get_handler, search_post_handler, search_stream_handler};
 use crate::Format;
 
@@ -49,7 +49,8 @@ pub async fn start_rest_service(
         .map(metrics::metrics_handler);
     let rest_routes = liveness_check_handler()
         .or(cluster_handler(cluster_service))
-        .or(push_api_handler())
+        .or(ingest_handler())
+        .or(tail_handler())
         .or(search_get_handler(search_service.clone()))
         .or(search_post_handler(search_service.clone()))
         .or(search_stream_handler(search_service))
