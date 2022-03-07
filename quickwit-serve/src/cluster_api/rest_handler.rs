@@ -36,6 +36,15 @@ pub fn cluster_handler<TClusterService: ClusterService>(
         .and_then(list_members)
 }
 
+/// Cluster handler.
+pub fn cluster_handler<TClusterService: ClusterService>(
+    cluster_service: Arc<TClusterService>,
+) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
+    list_members_filter()
+        .and(warp::any().map(move || cluster_service.clone()))
+        .and_then(list_members)
+}
+
 /// This struct represents the QueryString passed to
 /// the rest API.
 #[derive(Deserialize, Debug, PartialEq, Eq)]

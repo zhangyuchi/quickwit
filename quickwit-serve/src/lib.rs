@@ -25,6 +25,7 @@ mod grpc;
 
 mod cluster_api;
 mod health_check_api;
+mod push_api;
 mod search_api;
 
 mod rest;
