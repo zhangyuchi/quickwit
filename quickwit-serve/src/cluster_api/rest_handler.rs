@@ -20,21 +20,12 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use quickwit_cluster::error::ClusterError;
 use quickwit_cluster::service::ClusterService;
 use serde::Deserialize;
 use warp::{Filter, Rejection};
 
-use crate::error::ApiError;
 use crate::Format;
-
-/// Cluster handler.
-pub fn cluster_handler<TClusterService: ClusterService>(
-    cluster_service: Arc<TClusterService>,
-) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
-    list_members_filter()
-        .and(warp::any().map(move || cluster_service.clone()))
-        .and_then(list_members)
-}
 
 /// Cluster handler.
 pub fn cluster_handler<TClusterService: ClusterService>(
@@ -74,7 +65,7 @@ async fn list_members<TClusterService: ClusterService>(
 
 async fn list_members_endpoint<TClusterService: ClusterService>(
     cluster_service: &TClusterService,
-) -> Result<quickwit_proto::ListMembersResponse, ApiError> {
+) -> Result<quickwit_proto::ListMembersResponse, ClusterError> {
     let list_members_req = quickwit_proto::ListMembersRequest {};
     let list_members_resp = cluster_service.list_members(list_members_req).await?;
     Ok(list_members_resp)
