@@ -1,0 +1,36 @@
+
+#[mockall::automock]
+#[async_trait]
+pub trait {{service_name}} {
+    {{#methods_non_streaming}}
+    async fn {{name}}(&self, req: {{input_type}}) -> Result<{{output_type}}, {{service_name}}Error>;
+    {{/methods_non_streaming}}
+
+    {{#methods_streaming}}
+    async fn {{name}}(&self, req: {{input_type}}) -> Result<Pin<Box<dyn futures::Stream<Item = Result<{{output_type}}, {{service_name}}Error> + Send>>>, {{service_name}}Error>;
+    {{/methods_streaming}}
+}
+
+#[derive(Clone)]
+pub struct {{service_name}}GrpcAdapter(Arc<dyn {{service_name}}>);
+
+impl From<Arc<dyn {{service_name}}>> for {{service_name}}GrpcAdapter {
+    fn from(inner: Arc<dyn {{service_name}}>) -> Self {
+        {{service_name}}GrpcAdapter(inner)
+    }
+}
+
+#[async_trait]
+impl {{service_name}} for {{service_name}}GrpcAdapter {
+    #[instrument(skip(self, request))]
+    {{#methods_non_streaming}}
+    async fn {{name}}(&self, req: tonic::Request<quickwit_proto::{{input_type}}>) -> Result<tonic::Response<quickwit_proto::{{output_type}}>, tonic::Status> {
+        let parent_cx =
+            global::get_text_map_propagator(|prop| prop.extract(&MetadataMap(request.metadata())));
+        Span::current().set_parent(parent_cx);
+        let req = req.into_inner();
+        let resp = self.0.{{name}}(req).await?;
+        Ok(tonic::Response::new(resp))
+    }
+    {{/methods_non_streaming}}
+}
