@@ -30,6 +30,7 @@ mod search_api;
 
 mod rest;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use format::Format;
@@ -77,6 +78,7 @@ pub async fn run_searcher(
         cluster_client,
         client_pool,
     ));
+    quickwit_pushapi::init_push_api_service(Path::new("queue")).unwrap();
 
     let cluster_service = Arc::new(ClusterServiceImpl::new(cluster.clone()));
 

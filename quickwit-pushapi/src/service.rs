@@ -26,7 +26,7 @@ use quickwit_proto::push_api::{
     SuggestTruncateResponse, TailRequest,
 };
 use tokio::sync::oneshot;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 use crate::blocking_service::PushAPIServiceBlockingImpl;
 use crate::Queues;
@@ -104,8 +104,13 @@ pub struct PushApiServiceImpl {
 impl PushApiServiceImpl {
     pub(crate) fn start(queue_path: &Path) -> anyhow::Result<PushApiServiceImpl> {
         let (command_sender, rx) = flume::bounded(5);
-        let queues = Queues::open(queue_path)
+        let mut queues = Queues::open(queue_path)
             .with_context(|| format!("Failed to open queues at path {queue_path:?}."))?;
+        if let Err(err) = queues.create_queue("wikipedia") {
+            error!(err=?err,"pushapi error");
+        } else {
+            info!("success");
+        }
         let blocking_service = PushAPIServiceBlockingImpl::with_queues(queues);
         std::thread::Builder::new()
             .name("quickwit-push-api".to_string())

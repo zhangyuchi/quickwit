@@ -22,8 +22,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use quickwit_proto::push_api::{DocBatch, IngestRequest, TailRequest};
-use quickwit_pushapi::{add_doc, PushApiServiceImpl};
+use quickwit_pushapi::{add_doc, PushApiServiceImpl, iter_doc_payloads};
+use serde::Serialize;
 use thiserror::Error;
+use tracing::info;
 use warp::{reject, Filter, Rejection};
 
 use crate::Format;
@@ -79,6 +81,7 @@ async fn ingest(
     payload: String,
     push_api_service: Arc<PushApiServiceImpl>,
 ) -> Result<impl warp::Reply, Infallible> {
+    info!(payload=%payload, "ingest");
     let mut doc_batch = DocBatch::default();
     doc_batch.index_id = index_id;
     for doc_payload in lines(&payload) {
@@ -104,13 +107,32 @@ pub fn tail_handler() -> impl Filter<Extract = impl warp::Reply, Error = Rejecti
 }
 
 fn tail_filter() -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
-    warp::path!("api" / "v1" / String / "fetch").and(warp::get())
+    warp::path!("api" / "v1" / String / "tail").and(warp::get())
+}
+
+
+#[derive(Serialize)]
+struct TailRestResponse {
+    docs: Vec<String>
 }
 
 async fn tail(
     index_id: String,
     push_api_service: Arc<PushApiServiceImpl>,
 ) -> Result<impl warp::Reply, Infallible> {
-    let tail_res = push_api_service.tail(TailRequest { index_id }).await;
+    let tail_res = push_api_service.tail(TailRequest { index_id }).await
+        .map(|index| {
+            let mut docs = Vec::new();
+            if let Some(doc_batch) = index.doc_batch.as_ref() {
+                for doc_payload in iter_doc_payloads(doc_batch) {
+                    if let Ok(doc_utf8) = std::str::from_utf8(doc_payload) {
+                        docs.push(doc_utf8.to_string());
+                    }
+                }
+            }
+            TailRestResponse {
+                docs
+            }
+        });
     Ok(Format::PrettyJson.make_reply(tail_res))
 }
