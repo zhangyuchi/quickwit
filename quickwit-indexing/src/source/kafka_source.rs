@@ -40,7 +40,7 @@ use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::util::Timeout;
 use rdkafka::{ClientContext, Message, Offset};
 use serde_json::json;
-use tokio::task::spawn_blocking;
+use tokio;
 use tracing::{debug, info, warn};
 
 use crate::actors::Indexer;
@@ -172,65 +172,76 @@ impl Source for KafkaSource {
         batch_sink: &Mailbox<Indexer>,
         ctx: &SourceContext,
     ) -> Result<(), ActorExitStatus> {
+        let mut batch_num_bytes = 0;
         let mut docs = Vec::new();
         let mut checkpoint_delta = CheckpointDelta::default();
 
-        let deadline = tokio::time::sleep(quickwit_actors::HEARTBEAT / 2);
-        let mut message_stream = Box::pin(self.consumer.stream().take_until(deadline));
+        let deadline = tokio::time::sleep(quickwit_actors::HEARTBEAT);
+        tokio::pin!(deadline);
 
-        let mut batch_num_bytes = 0;
+        let mut stream = self.consumer.stream();
 
-        while let Some(message_res) = message_stream.next().await {
-            let message = match message_res {
-                Ok(message) => message,
-                Err(KafkaError::PartitionEOF(partition_id)) => {
-                    self.state.num_active_partitions -= 1;
-                    info!(
-                        topic = %self.topic,
-                        partition_id = ?partition_id,
-                        num_active_partitions = ?self.state.num_active_partitions,
-                        "Reached end of partition."
-                    );
-                    continue;
+        loop {
+            tokio::select! {
+                message_opt = stream.next() => {
+                    if let Some(message_res) = message_opt {
+                        let message = match message_res {
+                            Ok(message) => message,
+                            Err(KafkaError::PartitionEOF(partition_id)) => {
+                                self.state.num_active_partitions -= 1;
+                                info!(
+                                    topic = %self.topic,
+                                    partition_id = ?partition_id,
+                                    num_active_partitions = ?self.state.num_active_partitions,
+                                    "Reached end of partition."
+                                );
+                                continue;
+                            }
+                            // FIXME: This is assuming that Kafka errors are not recoverable, it may not be the
+                            // case.
+                            Err(err) => return Err(ActorExitStatus::from(anyhow::anyhow!(err))),
+                        };
+                        if let Some(doc) = parse_message_payload(&message) {
+                            docs.push(doc);
+                        } else {
+                            self.state.num_invalid_messages += 1;
+                        }
+                        batch_num_bytes += message.payload_len() as u64;
+                        self.state.num_bytes_processed += message.payload_len() as u64;
+                        self.state.num_messages_processed += 1;
+
+                        let partition_id = self
+                            .state
+                            .assigned_partition_ids
+                            .get(&message.partition())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Received message from unassigned partition `{}`. Assigned partitions: \
+                                    `{{{}}}`.",
+                                    message.partition(),
+                                    self.state.assigned_partition_ids.keys().join(", "),
+                                )
+                            })?
+                            .clone();
+                        let current_position = Position::from(message.offset());
+                        let previous_position = self
+                            .state
+                            .current_positions
+                            .insert(message.partition(), current_position.clone())
+                            .unwrap_or_else(|| previous_position_for_offset(message.offset()));
+                        checkpoint_delta
+                            .record_partition_delta(partition_id, previous_position, current_position)
+                            .context("Failed to record partition delta.")?;
+
+                        if batch_num_bytes >= TARGET_BATCH_NUM_BYTES {
+                           break;
+                       }
+                   }
+                   ctx.record_progress();
                 }
-                // FIXME: This is assuming that Kafka errors are not recoverable, it may not be the
-                // case.
-                Err(err) => return Err(ActorExitStatus::from(anyhow::anyhow!(err))),
-            };
-            if let Some(doc) = parse_message_payload(&message) {
-                docs.push(doc);
-            } else {
-                self.state.num_invalid_messages += 1;
-            }
-            batch_num_bytes += message.payload_len() as u64;
-            self.state.num_bytes_processed += message.payload_len() as u64;
-            self.state.num_messages_processed += 1;
-
-            let partition_id = self
-                .state
-                .assigned_partition_ids
-                .get(&message.partition())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Received unexpected message from partition `{}`. Assigned partitions: \
-                         `{{{}}}`.",
-                        message.partition(),
-                        self.state.assigned_partition_ids.keys().join(", "),
-                    )
-                })?
-                .clone();
-            let current_position = Position::from(message.offset());
-            let previous_position = self
-                .state
-                .current_positions
-                .insert(message.partition(), current_position.clone())
-                .unwrap_or_else(|| previous_position_for_offset(message.offset()));
-            checkpoint_delta
-                .record_partition_delta(partition_id, previous_position, current_position)
-                .context("Failed to record partition delta.")?;
-
-            if batch_num_bytes >= TARGET_BATCH_NUM_BYTES {
-                break;
+                _ = &mut deadline => {
+                    break;
+                }
             }
         }
         if !checkpoint_delta.is_empty() {
@@ -381,7 +392,7 @@ async fn fetch_partition_ids(
 ) -> anyhow::Result<Vec<i32>> {
     let timeout = Timeout::After(Duration::from_secs(5));
     let topic_clone = topic.to_string();
-    let cluster_metadata = spawn_blocking(move || {
+    let cluster_metadata = tokio::task::spawn_blocking(move || {
         consumer
             .fetch_metadata(Some(&topic_clone), timeout)
             .with_context(|| format!("Failed to fetch metadata for topic `{}`.", topic_clone))
@@ -448,7 +459,7 @@ async fn fetch_watermarks_for_partition_id(
         max_elapsed_time: Some(timeout),
         ..Default::default()
     };
-    spawn_blocking(move ||
+    tokio::task::spawn_blocking(move ||
         backoff::retry(backoff, || {
             debug!(topic = %topic, partition_id = ?partition_id, "Fetching watermarks");
             consumer
